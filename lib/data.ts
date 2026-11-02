@@ -3,8 +3,8 @@ import bonas from '@/data/bonas.json';
 import lzo from '@/data/lzo.json';
 export const templates:Record<BrandId,WorkspaceData>={bonas:bonas as WorkspaceData,lzo:lzo as WorkspaceData};
 export const BRAND_INFO={
- bonas:{code:'BONAS',label:'BONAS-INC',person:'Sandrine Mamiafo',initial:'B',color:'#4768e8',light:'#eaf0ff',positioning:'Mon Plan B, construit sans quitter mon Plan A'},
- lzo:{code:'LZO',label:'LZO Empire',person:'Laurence Fedjou Zonfack',initial:'L',color:'#b37c51',light:'#fff1e5',positioning:'Je construis mon après'}
+ bonas:{code:'BONAS',label:'BONAS-INC',person:'Sandrine Mamiafo',initial:'B',color:'#4768e8',light:'#eaf0ff',positioning:'Marketing digital · ateliers · histoires concrètes'},
+ lzo:{code:'LZO',label:'LZO Empire',person:'Laurence Fedjou Zonfack',initial:'L',color:'#b37c51',light:'#fff1e5',positioning:'Découvrir · comprendre · choisir en confiance'}
 };
 export const navSections=[
  {id:'overview',name:'Vue d’ensemble'},
