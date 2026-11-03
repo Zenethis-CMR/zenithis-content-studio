@@ -102,6 +102,8 @@ export default function Studio(){
  const [inviteBrand,setInviteBrand]=useState<BrandId>('bonas');
  const [inviteRole,setInviteRole]=useState<BrandRole>('editor');
  const [inviteBusy,setInviteBusy]=useState(false);
+ const [inviteFeedback,setInviteFeedback]=useState<{kind:'error'|'success'|'info';code?:string;message:string}|null>(null);
+ const [manualInvite,setManualInvite]=useState<{email:string;link:string}|null>(null);
  const [dbMessage,setDbMessage]=useState('Connexion à la base…');
  const [dbProblem,setDbProblem]=useState('');
  const versionRef=useRef<Record<BrandId,number>>({bonas:0,lzo:0});
@@ -407,6 +409,41 @@ export default function Studio(){
  useEffect(()=>{
   if(view==='settings'&&ready&&manageableBrands.length)void refreshGrantRows();
  },[view,brand,ready,user?.id,access?.isSuperadmin,access?.roles.bonas,access?.roles.lzo]);
+
+ const requestInvitation=async(grant:GrantRow,action:'send'|'manual_link'='send')=>{
+  if(!studioClient||inviteBusy||!canManage(grant.brand_id))return;
+  setInviteBusy(true);setInviteFeedback(null);setManualInvite(null);
+  try{
+   const {data,error}=await studioClient.functions.invoke('invite-studio-member',{
+    body:{email:grant.email,brand:grant.brand_id,role:grant.role,action}
+   });
+   let detail=data as {ok?:boolean;status?:string;code?:string;error?:string;notice?:string;link?:string}|null;
+   if(error){
+    const response=(error as {context?:Response}).context;
+    if(response?.json)try{detail=await response.clone().json()}catch{}
+   }
+   if(error||!detail?.ok){
+    const code=detail?.code||'EMAIL_DELIVERY_FAILED';
+    const msg=detail?.error||'L’envoi a échoué. Consultez les journaux d’authentification Supabase.';
+    setInviteFeedback({kind:'error',code,message:msg});
+    notify('Accès conservé. '+msg,'warning');
+    return;
+   }
+   if(action==='manual_link'){
+    if(!detail.link){setInviteFeedback({kind:'error',message:'Le lien sécurisé n’a pas été généré.'});return}
+    setManualInvite({email:grant.email,link:detail.link});
+    setInviteFeedback({kind:'success',message:'Lien créé, mais aucun e-mail n’a été envoyé. Copiez-le et transmettez-le uniquement à la personne concernée.'});
+    return;
+   }
+   if(detail.status==='existing-account'){
+    setInviteFeedback({kind:'info',message:detail.notice||'Le compte existe déjà. Il peut se connecter ou demander un nouveau mot de passe.'});
+    return;
+   }
+   setInviteFeedback({kind:'success',message:'Invitation acceptée par Supabase Auth. L’e-mail a été remis au service d’envoi; la réception finale dépend du fournisseur.'});
+   setInviteEmail('');
+   notify('Demande d’envoi d’invitation acceptée.');
+  }finally{setInviteBusy(false)}
+ };
  const grantAccess=async()=>{
   if(!studioClient||!user||inviteBusy)return;
   const targetBrand=manageableBrands.includes(inviteBrand)?inviteBrand:manageableBrands[0];
@@ -415,24 +452,14 @@ export default function Studio(){
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)){notify('Adresse e-mail invalide','warning');return}
   if(inviteRole==='owner'&&!access?.isSuperadmin){notify('Seul le super-administrateur peut nommer un propriétaire','warning');return}
   if(normalized===user.email?.trim().toLowerCase() && !access?.isSuperadmin){notify('Vous ne pouvez pas modifier votre propre accès','warning');return}
-  setInviteBusy(true);
+  setInviteBusy(true);setInviteFeedback(null);setManualInvite(null);
   const {error}=await studioClient.from('studio_brand_access').upsert({
     email:normalized,brand_id:targetBrand,role:inviteRole,granted_by:user.id
   },{onConflict:'email,brand_id'});
-  if(error){setInviteBusy(false);notify('Autorisation refusée : '+error.message,'warning');return}
-  const {data:invitation,error:deliveryError}=await studioClient.functions.invoke('invite-studio-member',{
-    body:{email:normalized,brand:targetBrand,role:inviteRole}
-  });
   setInviteBusy(false);
-  if(deliveryError||!invitation?.ok){
-    notify('Marque attribuée, mais e-mail non envoyé. Vérifiez les redirections et le quota SMTP Supabase.','warning');
-    await refreshGrantRows();return;
-  }
-  setInviteEmail('');
-  notify(invitation.status==='existing-account-reset'
-   ?'Accès attribué : e-mail de configuration du mot de passe envoyé.'
-   :'Invitation envoyée. Le destinataire pourra définir son profil et son mot de passe.');
+  if(error){notify('Autorisation refusée : '+error.message,'warning');return}
   await refreshGrantRows();
+  await requestInvitation({email:normalized,brand_id:targetBrand,role:inviteRole},'send');
  };
  const revokeGrant=async(grant:GrantRow)=>{
   if(!studioClient||!canManage(grant.brand_id))return;
@@ -767,10 +794,27 @@ export default function Studio(){
  <option value="editor">Éditeur</option><option value="viewer">Lecture seule</option>{access?.isSuperadmin&&<option value="owner">Propriétaire</option>}
  </select>
  <button type="button" className="btn btn-primary" disabled={inviteBusy} onClick={()=>void grantAccess()}>{inviteBusy?'Enregistrement…':'Attribuer et inviter'}</button>
+  <div className="studio-invite-help">Les droits peuvent être attribués même si l’e-mail est refusé. Pour un accès existant, utilisez « Renvoyer ».
+   <a href="https://supabase.com/docs/guides/auth/auth-smtp" target="_blank" rel="noopener noreferrer">Configuration SMTP</a>.
+  </div>
+  {inviteFeedback&&<div className={'studio-invite-feedback studio-invite-'+inviteFeedback.kind} role={inviteFeedback.kind==='error'?'alert':'status'}>
+   <strong>{inviteFeedback.code==='EMAIL_RATE_LIMIT'?'Quota e-mail atteint':inviteFeedback.code==='SMTP_REQUIRED'?'SMTP requis':inviteFeedback.kind==='success'?'Opération enregistrée':'Invitation à vérifier'}</strong>
+   <p>{inviteFeedback.message}</p>
+  </div>}
+  {manualInvite&&<div className="studio-invite-feedback studio-invite-success">
+   <strong>Lien d’activation pour {manualInvite.email}</strong>
+   <p>Ce lien donne accès au compte : transmettez-le uniquement en privé au destinataire. Il expire selon la durée configurée dans Supabase Auth. Aucun e-mail n’a été envoyé.</p>
+   <button type="button" className="btn btn-outline" onClick={()=>copyText(manualInvite.link)}><Copy size={15}/> Copier le lien privé</button>
+   <button type="button" className="btn btn-outline" onClick={()=>setManualInvite(null)}>Masquer le lien</button>
+  </div>
  </div>
  <div style={{marginTop:15,display:'grid',gap:8}}>
  {grantRows.map(g=><div key={g.brand_id+'-'+g.email} style={{display:'flex',alignItems:'center',gap:9,justifyContent:'space-between',padding:'9px 12px',background:'#f5f8ff',borderRadius:10,flexWrap:'wrap'}}>
  <span><strong>{g.email}</strong><br/><small>{BRAND_INFO[g.brand_id].label} · {g.role==='owner'?'Propriétaire':g.role==='viewer'?'Lecture seule':'Éditeur'}</small></span>
+  <div className="studio-grant-actions">
+   <button type="button" className="btn btn-outline" disabled={inviteBusy} onClick={()=>void requestInvitation(g)}><Mail size={14}/> Renvoyer</button>
+   <button type="button" className="btn btn-outline" disabled={inviteBusy} onClick={()=>void requestInvitation(g,'manual_link')}><Link2 size={14}/> Lien privé</button>
+  </div>
  {(g.role!=='owner'||access?.isSuperadmin)&&<button type="button" className="btn btn-outline" onClick={()=>void revokeGrant(g)}>Retirer</button>}
  </div>)}
  {!grantRows.length&&<p>Aucun accès individuel ajouté pour les marques administrées.</p>}
