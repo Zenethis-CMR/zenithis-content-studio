@@ -12,11 +12,14 @@ const encodePayload=(data:PersistentWorkspace):PersistentWorkspace=>({
 export const encodeWorkspace=encodePayload;
 export async function hydrateWorkspace(data:PersistentWorkspace):Promise<PersistentWorkspace>{
  if(!studioClient)return data;
- const media=await Promise.all(data.media.map(async(m)=>{
+ const media=await Promise.all((data.media||[]).map(async m=>{
   if(!m.storagePath)return m;
-  const {data:response,error}=await studioClient!.storage.from(STUDIO_BUCKET).createSignedUrl(m.storagePath,604800);
-  if(error){console.warn('Cannot sign media URL',error.message);return {...m,src:''}}
-  return {...m,src:response.signedUrl};
+  const storage=studioClient!.storage.from(STUDIO_BUCKET);
+  const paths=[m.storagePath,...(m.posterStoragePath?[m.posterStoragePath]:[])];
+  const signed=await Promise.all(paths.map(path=>storage.createSignedUrl(path,604800)));
+  if(signed[0].error)console.warn('Cannot sign media URL',signed[0].error.message);
+  return {...m,src:signed[0].error?'':signed[0].data.signedUrl,
+    ...(m.posterStoragePath?{posterSrc:signed[1].error?'':signed[1].data.signedUrl}:{})};
  }));
  return {...data,media};
 }
@@ -44,19 +47,75 @@ export async function saveWorkspace(brand:BrandId,value:PersistentWorkspace,expe
  if(!result.data)throw new Error('CONFLICT: ce contenu a été modifié ailleurs. Recharge la page pour récupérer la version récente.');
  return result.data.version as number;
 }
+/** Best-effort still frame for video previews; browser-only, no remote transcoding. */
+async function makeVideoPoster(file:File):Promise<File|null>{
+ if(typeof document==='undefined')return null;
+ return new Promise(resolve=>{
+  const video=document.createElement('video');
+  const blobUrl=URL.createObjectURL(file);
+  let done=false;
+  let timeout:ReturnType<typeof setTimeout>;
+  const finish=(result:File|null)=>{
+   if(done)return;
+   done=true;clearTimeout(timeout);
+   video.pause();video.removeAttribute('src');video.load();URL.revokeObjectURL(blobUrl);
+   resolve(result);
+  };
+  const capture=()=>{
+   try{
+    const ratio=Math.min(1,640/Math.max(1,video.videoWidth));
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.round(video.videoWidth*ratio));
+    canvas.height=Math.max(1,Math.round(video.videoHeight*ratio));
+    const ctx=canvas.getContext('2d');
+    if(!ctx)throw new Error('canvas indisponible');
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    canvas.toBlob(blob=>finish(blob?new File([blob],'poster.jpg',{type:'image/jpeg'}):null),'image/jpeg',.79);
+   }catch{finish(null)}
+  };
+  timeout=setTimeout(()=>finish(null),9000);
+  video.muted=true;video.preload='auto';video.playsInline=true;
+  video.onerror=()=>finish(null);
+  video.onloadeddata=()=>{
+   if(video.duration&&Number.isFinite(video.duration)&&video.duration>.5){
+    video.onseeked=capture;
+    try{video.currentTime=Math.min(.7,video.duration/4)}catch{capture()}
+   }else capture();
+  };
+  video.src=blobUrl;video.load();
+ });
+}
 export async function uploadStudioMedia(file:File,brand:BrandId):Promise<MediaAsset>{
  if(!studioClient)throw Error('Supabase non configuré');
- if(file.size>25*1024*1024)throw Error('Taille maximale : 25 Mo');
+ const maxBytes=25*1024*1024;
+ if(file.size>maxBytes)throw Error('Ce stockage privé accepte 25 Mo par fichier actuellement. Pour les grandes vidéos, compressez le clip; le stockage externe sera raccordé séparément.');
  const accepted=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','application/pdf'];
- if(!accepted.includes(file.type))throw Error('Format non pris en charge');
+ if(!accepted.includes(file.type))throw Error('Format non pris en charge : images JPEG, PNG, WebP, GIF, MP4, WebM et PDF.');
  const ext=(file.name.split('.').at(-1)||'bin').replace(/[^a-z0-9]/gi,'').toLowerCase();
- const path=brand+'/'+crypto.randomUUID()+'.'+ext;
- const {error}=await studioClient.storage.from(STUDIO_BUCKET).upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'});
+ const id=crypto.randomUUID();
+ const path=brand+'/'+id+'.'+ext;
+ const bucket=studioClient.storage.from(STUDIO_BUCKET);
+ const {error}=await bucket.upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'});
  if(error)throw error;
- const signed=await studioClient.storage.from(STUDIO_BUCKET).createSignedUrl(path,604800);
+ const signed=await bucket.createSignedUrl(path,604800);
  if(signed.error)throw signed.error;
- return {id:'media-'+crypto.randomUUID(),brand,name:file.name,kind:file.type.startsWith('image/')?'Image':file.type.startsWith('video/')?'Vidéo':'Document',
- src:signed.data.signedUrl,storagePath:path,format:file.type,created:new Date().toISOString().slice(0,10),size:(file.size/1024/1024).toFixed(2)+' Mo'};
+ let posterSrc: string|undefined;
+ let posterStoragePath: string|undefined;
+ if(file.type.startsWith('video/')){
+  const poster=await makeVideoPoster(file);
+  if(poster){
+   const posterPath=brand+'/posters/'+id+'.jpg';
+   const attempt=await bucket.upload(posterPath,poster,{contentType:'image/jpeg',upsert:false});
+   if(!attempt.error){
+    const signedPoster=await bucket.createSignedUrl(posterPath,604800);
+    if(!signedPoster.error){posterSrc=signedPoster.data.signedUrl;posterStoragePath=posterPath}
+   }
+  }
+ }
+ return {id:'media-'+id,brand,name:file.name,
+ kind:file.type.startsWith('image/')?'Image':file.type.startsWith('video/')?'Vidéo':'Document',
+ src:signed.data.signedUrl,storagePath:path,posterSrc,posterStoragePath,provider:'supabase',origin:'upload',
+ format:file.type,created:new Date().toISOString().slice(0,10),size:(file.size/1024/1024).toFixed(2)+' Mo'};
 }
 
 /** Editorial resources are private and fetched only after brand authorization. */
