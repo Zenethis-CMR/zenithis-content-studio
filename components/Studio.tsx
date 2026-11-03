@@ -542,7 +542,11 @@ export default function Studio(){
         {label:'Publications réalisées',n:stats.published,desc:`${stats.scheduled} programmées`,icon:CheckCheck,tone:'mint',target:'planning'},
         {label:'Conversations qualifiées',n:ws.metrics.qualified,desc:'Saisie manuelle',icon:WhatsappMark,tone:'orange',target:'insights'}
        ].map(m=><button type="button" className="metric-card navigable-block" key={m.label}
-          onClick={()=>{if(m.label==='Publications réalisées')setFilterStatus('Publié');else setFilterStatus('Tous les statuts');setView(m.target as View)}}
+          onClick={()=>{
+             if(m.label==='Publications réalisées')setFilterStatus('Publié');else setFilterStatus('Tous les statuts');
+             if(m.label==='Déclinaisons réseaux'){setSelectedPostId(allPosts[0]?.id||'');setEditTab('declinaisons')}
+             setView(m.target as View);
+          }}
           aria-label={'Ouvrir '+m.label}>
           <div className="metric-top"><span>{m.label}</span><span className={'metric-icon '+m.tone}><m.icon size={20}/></span></div>
           <strong>{m.n.toLocaleString('fr-FR')}</strong><div className="metric-note"><span className="tiny-dot"/>{m.desc}</div>
@@ -609,7 +613,7 @@ export default function Studio(){
        <div><h2>Séquences d'accueil et de présentation</h2><p>{selectedWhatsappStage==='1'?'Messages d’accueil pour les conversations privées':selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
        {raw.config.whatsapp?.startsWith('https://')?
         <a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-whatsapp"><SiWhatsapp size={19}/> Ouvrir WhatsApp <ExternalLink size={13}/></a>:
-        <button type="button" className="btn btn-whatsapp" onClick={()=>notify('Lien WhatsApp non configuré pour cette marque','warning')}><SiWhatsapp size={19}/> Configurer WhatsApp</button>}
+        <button type="button" className="btn btn-whatsapp" onClick={()=>notify('Aucun lien WhatsApp n’est renseigné pour cette marque','warning')}><SiWhatsapp size={19}/> Lien WhatsApp manquant</button>}
       </div>
       <div className="event-grid">
        {raw.events.map((evt:GroupEvent)=>{
