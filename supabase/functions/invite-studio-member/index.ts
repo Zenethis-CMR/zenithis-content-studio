@@ -80,9 +80,18 @@ Deno.serve(async(req:Request)=>{
   try{
     // Explicit admin action only. Never log or persist the tokenized link.
     if(action==="manual_link"){
-      const {data,error}=await admin.auth.admin.generateLink({
+      let {data,error}=await admin.auth.admin.generateLink({
         type:"invite",email,options:{redirectTo:siteUrl+"/?mode=setup"},
       });
+      // A prior, undelivered invitation may already have created this user.
+      // Magic-link login allows that same recipient to verify the address and set a password.
+      const existing=error&&classifyAuthError(error).code==="ACCOUNT_EXISTS";
+      if(existing){
+        const fallback=await admin.auth.admin.generateLink({
+          type:"magiclink",email,options:{redirectTo:siteUrl+"/?mode=setup"},
+        });
+        data=fallback.data;error=fallback.error;
+      }
       if(error){
         const detail=classifyAuthError(error);
         return output(detail.status===200?409:detail.status,{
