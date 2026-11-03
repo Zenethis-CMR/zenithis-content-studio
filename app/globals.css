@@ -105,3 +105,11 @@
 .btn-whatsapp:hover{background:#1cb959!important}
 .sidebar .side-nav .nav-link:has(svg[style*="#25d366"]){color:#128947}
 @media(prefers-reduced-motion:reduce){.navigable-block{transition:none!important}.navigable-block:hover{transform:none!important}}
+
+/* Subtle linking for the WhatsApp campaign stat and source cards. */
+.campaign-whatsapp-link{display:flex;align-items:center;gap:7px;padding:10px 12px;border-radius:9px;border:1px solid #c9efdf;background:#f1fcf7;color:#196d4a;white-space:nowrap;font-size:10px;font-weight:750;min-height:50px}
+.campaign-whatsapp-link b{font-size:20px;color:#14824d}
+.campaign-whatsapp-link:hover,.campaign-whatsapp-link:focus-visible{border-color:#25d366;background:#e8fbf0;outline:2px solid #a7ecc6;outline-offset:2px}
+.source-row.navigable-block{padding-left:10px;padding-right:10px;margin-inline:-10px;border-radius:10px}
+.source-row.navigable-block:hover{background:#f5f9ff}
+.source-row.navigable-block:focus-visible{outline-offset:0}
