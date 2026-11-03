@@ -314,3 +314,41 @@
 .editor-carousel-slide img{width:100%;height:100%;object-fit:cover}
 .editor-carousel-slide.active{border-color:#2a69ef}
 .editor-carousel-slide span{position:absolute;bottom:2px;right:2px;padding:2px 5px;background:#255dc9;border-radius:5px;color:white;font-size:10px;font-weight:800}
+
+
+/* Reversible editorial deletion: discoverable in the editor and programming table */
+.content-delete-btn,.row-actions .row-delete-btn{
+ color:#a73745!important;background:#fff7f7!important;border:1px solid #efc7cf!important;
+}
+.content-delete-btn{display:inline-flex;align-items:center;gap:7px;font-weight:700}
+.content-delete-btn:hover,.row-actions .row-delete-btn:hover{background:#ffe8eb!important;border-color:#d7808a!important}
+.content-delete-btn:focus-visible,.row-actions .row-delete-btn:focus-visible,
+.content-delete-confirm:focus-visible,.undo-content-toast button:focus-visible{
+ outline:3px solid #3778f4;outline-offset:3px;
+}
+.delete-content-dialog{max-width:490px}
+.delete-content-icon{background:#fff0f1!important;color:#b73f4d!important}
+.delete-content-preview{display:flex;flex-direction:column;gap:4px;padding:12px 14px;
+ border:1px solid #e5eafa;background:#f7f9ff;border-radius:10px;margin:10px 0 13px}
+.delete-content-preview strong{font-size:14px;color:#152852;line-height:1.5;overflow-wrap:anywhere}
+.delete-content-preview small{font-size:12px;color:#73819d}
+.delete-content-dialog .modal-content>p{font-size:13px;color:#566780;line-height:1.7}
+.delete-content-dialog .delete-content-warning{color:#a3434b;font-weight:700}
+.content-delete-confirm{display:inline-flex;gap:8px;align-items:center;justify-content:center;
+ color:#fff!important;background:#be3c4b!important;border:1px solid #be3c4b!important}
+.content-delete-confirm:hover{background:#9e2c39!important}
+.content-delete-confirm:disabled{opacity:.5;cursor:not-allowed}
+.undo-content-toast{position:fixed;right:20px;bottom:82px;z-index:10000;max-width:min(96vw,460px);
+ display:flex;align-items:center;gap:13px;flex-wrap:wrap;padding:12px 14px;border:1px solid #a8d5bc;
+ box-shadow:0 12px 36px rgba(25,50,81,.19);border-radius:13px;background:#f4fff8;color:#19583e;font-size:13px}
+.undo-content-toast>span{display:flex;align-items:center;gap:8px;line-height:1.45;flex:1;min-width:155px}
+.undo-content-toast>button{border-radius:8px;border:1px solid #abd2bf;background:#fff;
+ padding:8px 11px;color:#176a4c;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800}
+.undo-content-toast>button:hover{background:#e7f8ee}
+.undo-content-toast .undo-dismiss{padding:7px;border-color:transparent;background:transparent}
+@media(max-width:790px){
+ .editor-top .toolbar-buttons{flex-wrap:wrap;gap:8px}
+ .editor-top .content-delete-btn{order:2}
+ .undo-content-toast{right:12px;left:12px;bottom:88px;max-width:none}
+ .delete-content-dialog footer{display:flex;gap:9px;flex-wrap:wrap}
+}
