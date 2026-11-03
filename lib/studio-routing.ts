@@ -57,7 +57,7 @@ export function serializeStudioRoute(route:StudioRoute,existingSearch=''):string
   if(route.stage && route.stage!=='2')params.set('stage',route.stage);
   if(route.event)params.set('event',route.event);
  }
- if((route.view==='planning'||route.view==='kanban'||route.view==='campaigns')&&route.week)params.set('week',route.week);
+ if((route.view==='planning'||route.view==='kanban'||route.view==='campaigns')&&route.week&&/^S[1-8]$/.test(route.week))params.set('week',route.week);
  if(route.view==='planning'||route.view==='kanban'){
   if(route.status && route.status!=='Tous les statuts')params.set('status',route.status);
   if(route.channel && route.channel!=='Tous les canaux')params.set('channel',route.channel);
