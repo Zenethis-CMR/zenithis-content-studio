@@ -50,7 +50,7 @@ function Badge({children,tone='blue'}:{children:React.ReactNode,tone?:string}){r
 function Channel({name,small=false}:{name:string;small?:boolean}){
  const Icon=socialIconByChannel[name];
  return <span title={name} aria-label={name} className={'channel channel-'+channelClass(name)+(small?' channel-mini':'')}>
-  {Icon?<Icon size={small?13:17}/>:<span>{name.slice(0,1)}</span>}
+  {Icon?<Icon size={small?17:21}/>:<span>{name.slice(0,1)}</span>}
  </span>;
 }
 function IconButton({children,onClick,title,className=''}:{children:React.ReactNode;onClick?:()=>void;title?:string;className?:string}){return <button type="button" onClick={onClick} title={title} className={'icon-btn '+className}>{children}</button>}
@@ -58,6 +58,8 @@ function MiniLine({values}:{values:number[]}){const mx=Math.max(1,...values);con
 
 export default function Studio(){
  const [brand,setBrand]=useState<BrandId>('bonas');
+ const [brandMenuOpen,setBrandMenuOpen]=useState(false);
+ const brandMenuRef=useRef<HTMLDivElement>(null);
  const [view,setView]=useState<View>('overview');
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
  const [libraries,setLibraries]=useState<Record<BrandId,WorkspaceData>>({bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')});
@@ -224,7 +226,15 @@ export default function Studio(){
  const stats={posts:allPosts.length,variants:ws.variants.length,videos:raw.scripts.length,published:pipeline.find(x=>x.name==='Publié')?.count||0,scheduled:pipeline.find(x=>x.name==='Programmé')?.count||0};
  const countsByWeek=useMemo(()=>Array.from({length:8},(_,i)=>{const week=`S${i+1}`;return {week,planned:allPosts.filter(p=>p.week===week).length,published:allPosts.filter(p=>p.week===week&&normalizeStatus(p.status)==='Publié').length}}),[allPosts]);
  const notify=(message:string,kind:'success'|'info'|'warning'='success')=>setToast({message,kind});
- const switchBrand=(id:BrandId)=>{if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
+ const switchBrand=(id:BrandId)=>{setBrandMenuOpen(false);if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}if(id===brand)return;setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
+ useEffect(()=>{
+  if(!brandMenuOpen)return;
+  const closeOutside=(event:MouseEvent)=>{if(!brandMenuRef.current?.contains(event.target as Node))setBrandMenuOpen(false)};
+  const closeEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setBrandMenuOpen(false)};
+  document.addEventListener('pointerdown',closeOutside);
+  document.addEventListener('keydown',closeEscape);
+  return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',closeEscape)};
+ },[brandMenuOpen]);
  const canEdit=(id:BrandId)=>!!access && access.allowedBrands.includes(id) && (access.isSuperadmin || access.roles[id]!=='viewer');
  const canManage=(id:BrandId)=>!!access && access.allowedBrands.includes(id) && (access.isSuperadmin || access.roles[id]==='owner');
  const modifyWs=(id:BrandId,fn:(p:LocalWorkspace)=>LocalWorkspace)=>{
@@ -369,7 +379,26 @@ export default function Studio(){
   <div style={{position:'fixed',right:12,bottom:12,zIndex:9999,background:dbProblem?'#fff0f0':'#e8fff4',border:'1px solid #b3dfc4',borderRadius:9,padding:'9px 14px',fontSize:12,maxWidth:460,boxShadow:'0 3px 15px #0c22441c'}} role="status">{dbProblem?'⚠ '+dbProblem:'☁ '+dbMessage}</div>
   <aside className={'sidebar '+(mobileMenu?'sidebar-open':'')}>
     <div className="logo-row"><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span><IconButton className="mobile-dismiss" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
-    <div className="sidebar-workspace"><div className="eyebrow">ESPACE DE TRAVAIL</div>{(access?.allowedBrands.length||0)>1?<button className="workspace-switcher" onClick={()=>switchBrand(brand==='bonas'?'lzo':'bonas')} title="Basculer entre les marques autorisées"><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>{info.person}</small></span><ChevronDown size={16}/></button>:<div className="workspace-switcher" aria-label={'Espace '+info.label}><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>Votre espace exclusif</small></span><Check size={16}/></div>}</div>
+    <div className="sidebar-workspace" ref={brandMenuRef}>
+     <div className="eyebrow">ESPACE DE TRAVAIL</div>
+     {(access?.allowedBrands.length||0)>1?<>
+       <button type="button" className={'workspace-switcher workspace-trigger'+(brandMenuOpen?' workspace-trigger-open':'')} aria-label="Choisir une marque" aria-haspopup="listbox" aria-expanded={brandMenuOpen} aria-controls="studio-brand-menu" onClick={()=>setBrandMenuOpen(v=>!v)}>
+        <span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>{info.person}</small></span><ChevronDown className={'workspace-chevron'+(brandMenuOpen?' workspace-chevron-open':'')} size={17}/>
+       </button>
+       {brandMenuOpen&&<div className="workspace-dropdown" id="studio-brand-menu" role="listbox" aria-label="Marques autorisées">
+        <div className="workspace-dropdown-heading">CHOISIR UN ESPACE</div>
+        {access?.allowedBrands.map(id=>{
+          const item=BRAND_INFO[id];const active=id===brand;
+          return <button key={id} type="button" role="option" aria-selected={active} className={'workspace-option'+(active?' workspace-option-active':'')} onClick={()=>switchBrand(id)}>
+           <span className="workspace-option-initial" style={{background:item.light,color:item.color}}>{item.initial}</span>
+           <span className="workspace-option-copy"><strong>{item.label}</strong><small>{item.person}</small></span>
+           {active&&<Check size={17} strokeWidth={2.7} className="workspace-option-check"/>}
+          </button>;
+        })}
+        <div className="workspace-dropdown-foot"><Check size={13}/> Uniquement vos marques autorisées</div>
+       </div>}
+     </>:<div className="workspace-switcher workspace-static" aria-label={'Espace '+info.label}><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>Votre espace exclusif</small></span><Check size={16}/></div>}
+    </div>
     <div className="sidebar-label">WORKSPACE</div>
     <nav className="side-nav" aria-label="Navigation principale">{nav.map(([key,label,Icon])=><button type="button" onClick={()=>{setView(key);setMobileMenu(false);setSearch('')}} key={key} className={'nav-link '+(view===key?'nav-active':'')}><Icon size={19} strokeWidth={1.9}/><span>{label}</span>{key==='planning'&&<span className="nav-count">{stats.posts}</span>}</button>)}</nav>
     <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={16}/> CONSEIL DU STUDIO</span><p>Un bon contenu explique avant de convaincre.</p><button onClick={()=>setView('sources')}>Consulter les sources <ArrowRight size={14}/></button></div><div className="sidebar-foot"><span className="online-dot"/> Supabase · Accès sécurisés</div></div>
