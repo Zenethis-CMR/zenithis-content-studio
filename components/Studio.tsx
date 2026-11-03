@@ -112,7 +112,7 @@ export default function Studio(){
  const [selectedScript,setSelectedScript]=useState('');
  const [calendarMonth,setCalendarMonth]=useState(new Date(2026,10,1));
  const [selectedDate,setSelectedDate]=useState('2026-11-09');
- const [calendarMode,setCalendarMode]=useState<'Mois'|'Semaine'>('Mois');
+ const [calendarMode,setCalendarMode]=useState<'Mois'|'Semaine'|'Agenda'>('Mois');
  const [kanbanFilter,setKanbanFilter]=useState('');
  const [mediaFilter,setMediaFilter]=useState('Tous');
  const [toast,setToast]=useState<Toast>(null);
@@ -140,7 +140,7 @@ export default function Studio(){
    setFilterWeek(route.week||'Toutes les semaines');
    setFilterStatus(route.status && statuses.includes(route.status as Status)?route.status:'Tous les statuts');
    setFilterChannel(route.channel && socialChannels.includes(route.channel)?route.channel:'Tous les canaux');
-   setCalendarMode(route.calendar==='week'?'Semaine':'Mois');
+   setCalendarMode(route.calendar==='week'?'Semaine':route.calendar==='agenda'?'Agenda':route.calendar==='month'?'Mois':window.matchMedia('(max-width:780px)').matches?'Agenda':'Mois');
    if(route.date)setSelectedDate(route.date);
    const month=route.month||route.date?.slice(0,7);
    if(month){
@@ -169,7 +169,7 @@ export default function Studio(){
    script:view==='video'?selectedScript:undefined,
    date:view==='calendar'?selectedDate:undefined,
    month:view==='calendar'?isoDate(calendarMonth).slice(0,7):undefined,
-   calendar:view==='calendar'?(calendarMode==='Semaine'?'week':'month'):undefined,
+   calendar:view==='calendar'?(calendarMode==='Semaine'?'week':calendarMode==='Agenda'?'agenda':'month'):undefined,
    tab:view==='editor'?editTab:undefined,
    event:view==='whatsapp'?selectedEventId:undefined,
    stage:view==='whatsapp'?selectedWhatsappStage:undefined,
@@ -489,7 +489,7 @@ export default function Studio(){
  return <div className="studio-shell" style={{'--brand-accent':info.color,'--brand-light':info.light} as React.CSSProperties}>
   <div style={{position:'fixed',right:12,bottom:12,zIndex:9999,background:dbProblem?'#fff0f0':'#e8fff4',border:'1px solid #b3dfc4',borderRadius:9,padding:'9px 14px',fontSize:12,maxWidth:460,boxShadow:'0 3px 15px #0c22441c'}} role="status">{dbProblem?'⚠ '+dbProblem:'☁ '+dbMessage}</div>
   <aside className={'sidebar '+(mobileMenu?'sidebar-open':'')}>
-    <div className="logo-row"><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span><IconButton className="mobile-dismiss" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
+    <div className="logo-row"><button type="button" className="logo-home-btn" aria-label="Retour à l’accueil" onClick={()=>{setView('overview');setMobileMenu(false)}}><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span></button><IconButton className="mobile-dismiss" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
     <div className="sidebar-workspace" ref={brandMenuRef}>
      <div className="eyebrow">ESPACE DE TRAVAIL</div>
      {(access?.allowedBrands.length||0)>1?<>
@@ -516,7 +516,18 @@ export default function Studio(){
   </aside>
   {mobileMenu&&<div className="mobile-overlay" onClick={()=>setMobileMenu(false)}/>}
   <div className="app-column">
-   <header className="topbar"><IconButton className="hamburger" title="Menu" onClick={()=>setMobileMenu(true)}><Menu size={21}/></IconButton><div className="global-search"><Search size={19}/><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="Recherche globale" placeholder="Rechercher un contenu, un projet, un mot-clé..."/><kbd>⌘ K</kbd></div><div className="topbar-actions"><span className="session-date"><CalendarDays size={15}/> Novembre 2026</span><IconButton onClick={exportBackup} title="Exporter une sauvegarde"><Download size={19}/></IconButton><span className="topbar-divider"/><div className="profile-menu-wrap" ref={profileMenuRef}>
+   <header className="topbar"><IconButton className="hamburger" title="Ouvrir les modules" onClick={()=>setMobileMenu(true)}><Menu size={23}/></IconButton>
+   <div className="mobile-brand-head">
+    <span className="mobile-brand-monogram" style={{color:info.color,background:info.light}}>{info.initial}</span>
+    {(access?.allowedBrands.length||0)>1?
+     <label className="mobile-brand-select-wrap"><span className="sr-only">Changer de marque</span>
+      <select value={brand} onChange={e=>switchBrand(e.target.value as BrandId)} aria-label="Marque active">
+       {access!.allowedBrands.map(id=><option key={id} value={id}>{BRAND_INFO[id].label}</option>)}
+      </select><ChevronDown size={15} aria-hidden/>
+     </label>:
+     <strong className="mobile-brand-name">{info.label}</strong>}
+   </div>
+   <div className="global-search"><Search size={19}/><input value={search} onChange={e=>{setSearch(e.target.value);if(e.target.value.trim())setView('planning')}} aria-label="Recherche globale" placeholder="Rechercher un contenu, un projet, un mot-clé..."/><kbd>⌘ K</kbd></div><div className="topbar-actions"><span className="session-date"><CalendarDays size={15}/> Novembre 2026</span><IconButton onClick={exportBackup} title="Exporter une sauvegarde"><Download size={19}/></IconButton><span className="topbar-divider"/><div className="profile-menu-wrap" ref={profileMenuRef}>
  <button type="button" className={'profile profile-trigger'+(profileMenuOpen?' profile-trigger-open':'')} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-controls="studio-profile-menu"
   onClick={()=>{setBrandMenuOpen(false);setProfileMenuOpen(v=>!v)}}>
   <span className="avatar">{info.initial}</span><span><strong>{user.email?.split('@')[0]||info.person.split(' ')[0]}</strong>
@@ -573,8 +584,21 @@ export default function Studio(){
  onClick={e=>activateBlock(e,()=>openEditor(p))}
  onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}><td><button className="row-title" onClick={()=>openEditor(p)}>{p.title}</button><small>{clean(p.caption,95)}</small></td><td><div className="channel-row">{p.channels.slice(0,5).map((c,i)=><Channel key={i} name={c} small/>)}</div></td><td className="nowrap">{shortDate(p.date)} · {p.time}</td><td><span className="muted">{p.stage}</span></td><td><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge></td><td><div className="row-actions"><button title="Éditer" onClick={()=>openEditor(p)}><Pencil size={15}/></button><button title="Programmer dans le planning local" onClick={()=>updatePost(p.id,{status:'Programmé'})}><CalendarCheck size={15}/></button><button title="Marquer publié (aucune publication externe)" onClick={()=>updatePost(p.id,{status:'Publié'})}><Check size={15}/></button></div></td></tr>)}</tbody></table></div>{filtered.length===0&&<div className="empty">Aucun contenu pour ces filtres.</div>}</section>}
 
-    {view==='calendar'&&<section className="calendar-layout"><div className="panel calendar-main"><div className="calendar-head"><div className="calendar-title"><h2>{monthLabel(calendarMonth)}</h2><span>{allPosts.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length} contenus</span></div><div className="calendar-actions"><div className="segmented"><button className={calendarMode==='Mois'?'on':''} onClick={()=>setCalendarMode('Mois')}>Mois</button><button className={calendarMode==='Semaine'?'on':''} onClick={()=>setCalendarMode('Semaine')}>Semaine</button></div><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1))}><ChevronLeft size={17}/></IconButton><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1))}><ChevronRight size={17}/></IconButton></div></div>
-      {calendarMode==='Mois'?<div className="month-view"><div className="weekday-row">{dayNames.map(x=><div key={x}>{x}</div>)}</div><div className="month-grid">{monthGrid(calendarMonth).map((d,i)=>{const iso=isoDate(d);const posts=filtered.filter(x=>x.date===iso);return <button key={iso+'-'+i} type="button" onClick={()=>setSelectedDate(iso)} className={'day-cell '+(d.getMonth()!==calendarMonth.getMonth()?'out-month ':'')+(iso===selectedDate?'chosen-day ':'')}><span className="day-num">{d.getDate()}</span><div className="day-content">{posts.slice(0,3).map(p=><span title={p.title} key={p.id} className={'calendar-event '+statusClass(p.status)}>{clean(p.title,24)}</span>)}{posts.length>3&&<span className="more-events">+{posts.length-3} autres</span>}</div></button>})}</div></div>:<div className="week-view"><div className="weekday-row">{weekDates.map(d=><button className={isoDate(d)===selectedDate?'selected-weekday':''} onClick={()=>setSelectedDate(isoDate(d))} key={isoDate(d)}>{dayNames[(d.getDay()+6)%7]} {d.getDate()}</button>)}</div><div className="week-columns">{weekDates.map(d=><div key={isoDate(d)} className="week-column">{filtered.filter(p=>p.date===isoDate(d)).map(p=>workChip(p))}</div>)}</div></div>}
+    {view==='calendar'&&<section className="calendar-layout"><div className="panel calendar-main"><div className="calendar-head"><div className="calendar-title"><h2>{monthLabel(calendarMonth)}</h2><span>{allPosts.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length} contenus</span></div><div className="calendar-actions"><div className="segmented"><button className={calendarMode==='Mois'?'on':''} onClick={()=>setCalendarMode('Mois')}>Mois</button><button className={calendarMode==='Semaine'?'on':''} onClick={()=>setCalendarMode('Semaine')}>Semaine</button><button className={calendarMode==='Agenda'?'on':''} onClick={()=>setCalendarMode('Agenda')}>Agenda</button></div><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1))}><ChevronLeft size={17}/></IconButton><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1))}><ChevronRight size={17}/></IconButton></div></div>
+      {calendarMode==='Mois'?<div className="month-view"><div className="weekday-row">{dayNames.map(x=><div key={x}>{x}</div>)}</div><div className="month-grid">{monthGrid(calendarMonth).map((d,i)=>{const iso=isoDate(d);const posts=filtered.filter(x=>x.date===iso);return <button key={iso+'-'+i} type="button" onClick={()=>setSelectedDate(iso)} className={'day-cell '+(d.getMonth()!==calendarMonth.getMonth()?'out-month ':'')+(iso===selectedDate?'chosen-day ':'')}><span className="day-num">{d.getDate()}</span><div className="day-content">{posts.slice(0,3).map(p=><span title={p.title} key={p.id} className={'calendar-event '+statusClass(p.status)}>{clean(p.title,24)}</span>)}{posts.length>3&&<span className="more-events">+{posts.length-3} autres</span>}</div></button>})}</div></div>:<div className="week-view"><div className="weekday-row">{weekDates.map(d=><button className={isoDate(d)===selectedDate?'selected-weekday':''} onClick={()=>setSelectedDate(isoDate(d))} key={isoDate(d)}>{dayNames[(d.getDay()+6)%7]} {d.getDate()}</button>)}</div><div className="week-columns">{weekDates.map(d=><div key={isoDate(d)} className="week-column">{filtered.filter(p=>p.date===isoDate(d)).map(p=>workChip(p))}</div>)}</div></div>:<div className="agenda-view" aria-label="Publications du mois">
+  {filtered.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length===0?
+   <div className="agenda-empty"><CalendarDays size={28}/><strong>Aucune publication ce mois-ci</strong><span>Changez de mois ou ajoutez un contenu au planning.</span></div>:
+   Array.from(new Set(filtered.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).map(p=>p.date)))
+    .sort().map(day=><section className="agenda-day" key={day}>
+     <div className="agenda-day-header"><span>{new Date(day+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}</span><small>{filtered.filter(p=>p.date===day).length} contenu(s)</small></div>
+     {filtered.filter(p=>p.date===day).map(p=><button type="button" key={p.id} className="agenda-item"
+       onClick={()=>openEditor(p)} aria-label={'Modifier '+p.title}>
+       <span className={'agenda-time '+statusClass(p.status)}>{p.time||'—'}</span>
+       <span className="agenda-copy"><strong>{p.title}</strong><small>{p.channels.slice(0,2).join(' · ')||p.type}</small></span>
+       <ChevronRight size={19}/></button>)}
+    </section>)
+  }
+ </div>}
      </div><aside className="panel day-sidebar"><div className="panel-header"><div><h2>{longDate(selectedDate)}</h2><p>Publications du jour</p></div><Badge tone="blue">{selectedDayPosts.length}</Badge></div>{selectedDayPosts.length?selectedDayPosts.map(p=><PostCard key={p.id} p={p} compact/>):<div className="empty-day"><CalendarDays size={29}/><p>Aucun contenu à cette date.</p></div>}<button className="btn btn-outline full-btn" onClick={()=>{addPost();setEditorDraft({date:selectedDate})}}><Plus size={16}/> Ajouter un contenu</button><div className="tip-note"><Info size={16}/> Ces dates pilotent le planning interne ; aucune publication automatique n’est déclenchée.</div></aside></section>}
 
     {view==='kanban'&&<><div className="panel kanban-help"><div className="panel-header"><div><h2>Production de contenu</h2><p>Glissez une carte vers une autre colonne ou utilisez son sélecteur de statut.</p></div><Badge tone="purple">{stats.posts} cartes</Badge></div>{ToolbarFilters()}</div><section className="kanban-board">{statuses.map(s=>{const cards=filtered.filter(p=>normalizeStatus(p.status)===s);return <div className="kanban-column" key={s} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(kanbanFilter)updatePost(kanbanFilter,{status:s});setKanbanFilter('')}}><header><span className={'kanban-bubble '+statusClass(s)}/><strong>{s}</strong><em>{cards.length}</em></header><div className="kanban-cards">{cards.map(p=><article draggable onDragStart={()=>setKanbanFilter(p.id)} onDragEnd={()=>setKanbanFilter('')}
@@ -689,6 +713,28 @@ export default function Studio(){
 
    </main>
   </div>
+  <nav className="mobile-bottom-nav" aria-label="Navigation rapide mobile">
+   <button type="button" className={'mobile-nav-item'+(view==='overview'?' mobile-nav-active':'')}
+    aria-current={view==='overview'?'page':undefined} onClick={()=>{setView('overview');setMobileMenu(false)}}>
+     <LayoutDashboard size={21}/><span>Accueil</span>
+   </button>
+   <button type="button" className={'mobile-nav-item'+(view==='planning'||view==='calendar'?' mobile-nav-active':'')}
+    aria-current={view==='planning'||view==='calendar'?'page':undefined} onClick={()=>{setView('planning');setMobileMenu(false)}}>
+     <CalendarClock size={21}/><span>Planning</span>
+   </button>
+   <button type="button" className="mobile-nav-item mobile-nav-create"
+    onClick={()=>{if(canEdit(brand))setNewModal(true);else notify('Accès en lecture seule','warning')}} aria-label="Créer un nouveau contenu">
+     <span className="mobile-create-circle"><Plus size={24} strokeWidth={2.6}/></span><span>Créer</span>
+   </button>
+   <button type="button" className={'mobile-nav-item'+(view==='whatsapp'?' mobile-nav-active':'')}
+    aria-current={view==='whatsapp'?'page':undefined} onClick={()=>{setView('whatsapp');setMobileMenu(false)}}>
+     <SiWhatsapp size={22} style={{color:'#25d366'}}/><span>WhatsApp</span>
+   </button>
+   <button type="button" className={'mobile-nav-item'+(!['overview','planning','calendar','whatsapp'].includes(view)?' mobile-nav-active':'')}
+    aria-expanded={mobileMenu} aria-controls="studio-mobile-drawer" onClick={()=>setMobileMenu(v=>!v)}>
+     <Menu size={22}/><span>Modules</span>
+   </button>
+  </nav>
   {newModal&&<div className="modal-layer" onMouseDown={e=>{if(e.target===e.currentTarget)setNewModal(false)}}><div className="modal-card"><div className="modal-heading"><div><span className="modal-icon"><Plus size={23}/></span><h2>Nouveau contenu</h2><p>Créer une nouvelle idée dans {info.label}</p></div><IconButton onClick={()=>setNewModal(false)}><X size={20}/></IconButton></div><div className="modal-content"><p>Un nouveau brouillon sera ajouté au calendrier éditorial. Tu pourras immédiatement modifier son titre, son texte, les plateformes et sa date.</p><div className="modal-preview"><PenSquare size={21}/><span><strong>Publication · À produire</strong><small>Votre contenu restera privé dans le navigateur.</small></span></div></div><footer><button className="btn btn-outline" onClick={()=>setNewModal(false)}>Annuler</button><button className="btn btn-primary" onClick={addPost}>Créer le brouillon <ArrowRight size={15}/></button></footer></div></div>}
   {toast&&<div className={'toast '+(toast.kind||'success')} role="status">{toast.kind==='warning'?<AlertTriangle size={17}/>:<CircleCheck size={17}/>} {toast.message}<button onClick={()=>setToast(null)}><X size={14}/></button></div>}
  </div>;
