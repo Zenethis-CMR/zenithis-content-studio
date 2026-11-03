@@ -18,6 +18,7 @@ import {TeloPraPanel} from './TeloPraPanel';
 import {closingPlaybooks,closerStageNames} from '@/lib/closing-playbooks';
 import {editorialAlternatives,campaignDreams,campaignWeekThemes} from '@/lib/editorial-closer-v2';
 import {createContentExample} from '@/lib/content-examples';
+import {ContentThumbnail} from './ContentThumbnail';
 import {parseStudioRoute,serializeStudioRoute} from '@/lib/studio-routing';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
 import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
@@ -149,6 +150,13 @@ export default function Studio(){
  const [variantId,setVariantId]=useState('');
  const [variantDraft,setVariantDraft]=useState<Partial<ChannelVariant>>({});
  const fileInput=useRef<HTMLInputElement>(null);
+ const editorFileInput=useRef<HTMLInputElement>(null);
+ const [uploadBusy,setUploadBusy]=useState(false);
+ const [showStockImport,setShowStockImport]=useState(false);
+ const [stockConfirmed,setStockConfirmed]=useState(false);
+ const [stockUrl,setStockUrl]=useState('');
+ const [stockSource,setStockSource]=useState('');
+ const [stockCredit,setStockCredit]=useState('');
  const importInput=useRef<HTMLInputElement>(null);
 
  // Route hydration and browser history. The URL remains the source of truth on refresh/back/forward.
@@ -389,15 +397,48 @@ export default function Studio(){
  const addPost=()=>{
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
   const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'Ambition & quotidien':'Expérience & liberté',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Dis-moi en privé ce que tu veux explorer.':'Écris-moi pour découvrir les étapes.',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
- const mediaUpload=async(file:File|undefined)=>{
+ const mediaUpload=async(file:File|undefined,associatePostId?:string)=>{
   if(!file||!user||!studioClient)return;
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
+  setUploadBusy(true);
   setDbMessage('Envoi du fichier dans Supabase Storage…');
   try{
     const asset=await uploadStudioMedia(file,brand);
-    modifyWs(brand,w=>({...w,media:[asset,...w.media]}));
-    notify('Fichier téléversé dans Supabase Storage et ajouté à la médiathèque');
+    modifyWs(brand,w=>({
+      ...w,media:[asset,...w.media],
+      posts:associatePostId?w.posts.map(p=>p.id===associatePostId?{...p,coverMediaId:asset.id,mediaIds:[...new Set([...(p.mediaIds||[]),asset.id])]}:p):w.posts
+    }));
+    setSelectedMediaId(asset.id);
+    notify(asset.kind==='Vidéo'?'Vidéo importée avec aperçu, disponible dans la médiathèque':'Fichier importé dans la médiathèque');
   }catch(e){notify('Échec du téléversement : '+(e instanceof Error?e.message:String(e)),'warning')}
+  finally{setUploadBusy(false);if(fileInput.current)fileInput.current.value='';if(editorFileInput.current)editorFileInput.current.value=''}
+ };
+ const importStockPhoto=()=>{
+  if(!canEdit(brand)){notify('Lecture seule','warning');return}
+  try{
+   const url=new URL(stockUrl.trim());
+   const source=new URL(stockSource.trim());
+   if(url.protocol!=='https:'||source.protocol!=='https:')throw new Error('Adresses HTTPS requises');
+   if(!['images.unsplash.com','images.pexels.com'].includes(url.hostname))throw new Error('Image à télécharger depuis Unsplash ou Pexels (lien direct de l’image).');
+   if(!['unsplash.com','www.unsplash.com','pexels.com','www.pexels.com'].includes(source.hostname))throw new Error('Ajoutez le lien de la fiche originale Unsplash ou Pexels.');
+   if(!stockConfirmed)throw new Error('Confirmez que les droits d’utilisation du média ont été vérifiés.');
+   const item:MediaAsset={id:'stock-'+crypto.randomUUID(),brand,kind:'Image',
+    name:stockCredit.trim()?'Image libre de droits · '+stockCredit.trim():'Image libre de droits',
+    src:url.toString(),format:'Image distante',created:new Date().toISOString().slice(0,10),
+    provider:'remote',origin:'stock',licenseUrl:source.toString(),credit:stockCredit.trim(),
+    note:'Visuel provenant d’une banque d’images; droits et autorisations à vérifier avant publication.'};
+   modifyWs(brand,w=>({...w,media:[item,...w.media]}));
+   setSelectedMediaId(item.id);setStockUrl('');setStockSource('');setStockCredit('');setStockConfirmed(false);setShowStockImport(false);
+   notify('Image de banque ajoutée à la médiathèque');
+  }catch(e){notify(e instanceof Error?e.message:'Adresse invalide','warning')}
+ };
+ const setPostCover=(postId:string,id:string)=>{
+  if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
+  modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===postId?{
+   ...p,coverMediaId:id||undefined,
+   mediaIds:id?[...new Set([...(p.mediaIds||[]),id])]:p.mediaIds
+  }:p)}));
+  notify(id?'Visuel associé à la publication':'Visuel principal dissocié');
  };
  const manageableBrands=(access?.allowedBrands||[]).filter(id=>canManage(id));
  const refreshGrantRows=async()=>{
