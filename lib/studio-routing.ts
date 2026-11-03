@@ -3,7 +3,7 @@ import type {BrandId,View} from './types';
 /** URL-driven navigation: every module and selected resource has a stable, shareable address. */
 export type StudioRoute={
  brand?:BrandId;view:View;post?:string;media?:string;script?:string;
- date?:string;month?:string;calendar?:'month'|'week';tab?:'contenu'|'declinaisons';stage?:'1'|'2'|'3'|'4';event?:string;week?:string;status?:string;channel?:string;
+ date?:string;month?:string;calendar?:'month'|'week'|'agenda';tab?:'contenu'|'declinaisons';stage?:'1'|'2'|'3'|'4';event?:string;week?:string;status?:string;channel?:string;
 };
 export const STUDIO_VIEWS:View[]=[
  'overview','planning','calendar','kanban','media','editor','video',
@@ -28,7 +28,7 @@ export function parseStudioRoute(search:string):StudioRoute{
   script:allowed(params.get('script')),
   date:date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,
   month:params.get('month') && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.get('month')!)?params.get('month')!:undefined,
-  calendar:params.get('calendar')==='week'?'week':'month',
+  calendar:params.get('calendar')==='week'?'week':params.get('calendar')==='agenda'?'agenda':params.get('calendar')==='month'?'month':undefined,
   tab:tab==='declinaisons'?'declinaisons':'contenu',
   stage:stage==='1'||stage==='2'||stage==='3'||stage==='4'?stage:undefined,
   event:allowed(params.get('event')),
@@ -51,7 +51,7 @@ export function serializeStudioRoute(route:StudioRoute,existingSearch=''):string
  if(route.view==='calendar'){
   if(route.date)params.set('date',route.date);
   if(route.month)params.set('month',route.month);
-  if(route.calendar==='week')params.set('calendar','week');
+  if(route.calendar==='week'||route.calendar==='agenda')params.set('calendar',route.calendar);
  }
  if(route.view==='whatsapp'){
   if(route.stage && route.stage!=='2')params.set('stage',route.stage);
