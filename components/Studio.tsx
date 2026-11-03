@@ -710,8 +710,8 @@ export default function Studio(){
       </div>
       <div className="event-grid">
        {raw.events.map((evt:GroupEvent)=>{
-        const msg=selectedWhatsappStage==='1'?(evt.greeting||evt.invitation):selectedWhatsappStage==='2'?evt.invitation:selectedWhatsappStage==='3'?evt.reminder:evt.followUp;
-        const label=selectedWhatsappStage==='1'?'MESSAGE D’ACCUEIL':selectedWhatsappStage==='2'?'MESSAGE D’INVITATION':selectedWhatsappStage==='3'?'RAPPEL DE PRÉSENTATION':'MESSAGE DE SUIVI';
+        const msg=selectedWhatsappStage==='2'?evt.invitation:selectedWhatsappStage==='3'?evt.reminder:evt.followUp;
+        const label=selectedWhatsappStage==='2'?'MESSAGE D’INVITATION':selectedWhatsappStage==='3'?'RAPPEL DE PRÉSENTATION':'MESSAGE DE SUIVI';
         const expanded=selectedEventId===evt.id;
         return <article className={'event-card navigable-block '+(expanded?'event-card-active':'')} key={evt.id}
           role="button" tabIndex={0} aria-expanded={expanded} aria-label={'Afficher la séquence '+evt.theme}
