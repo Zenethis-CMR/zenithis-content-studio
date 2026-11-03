@@ -285,7 +285,7 @@ export default function Studio(){
   const targetBrand=manageableBrands.includes(inviteBrand)?inviteBrand:manageableBrands[0];
   const normalized=inviteEmail.trim().toLowerCase();
   if(!targetBrand||!canManage(targetBrand)){notify('Vous ne pouvez pas inviter dans cette marque','warning');return}
-  if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalized)){notify('Adresse e-mail invalide','warning');return}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)){notify('Adresse e-mail invalide','warning');return}
   if(inviteRole==='owner'&&!access?.isSuperadmin){notify('Seul le super-administrateur peut nommer un propriétaire','warning');return}
   if(normalized===user.email?.trim().toLowerCase() && !access?.isSuperadmin){notify('Vous ne pouvez pas modifier votre propre accès','warning');return}
   setInviteBusy(true);
