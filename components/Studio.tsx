@@ -15,6 +15,7 @@ import {
 import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
 import {StudioLogin,StudioOnboarding} from './StudioAuth';
 import {TeloPraPanel} from './TeloPraPanel';
+import {closingPlaybooks,closerStageNames} from '@/lib/closing-playbooks';
 import {parseStudioRoute,serializeStudioRoute} from '@/lib/studio-routing';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
 import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
@@ -668,9 +669,28 @@ export default function Studio(){
         <span>{id}</span><Icon size={28}/><strong>{title}</strong><ArrowRight className="funnel-arrow" size={15}/>
       </button>)}
      </div>
-     <div className="panel" id="studio-whatsapp-sequences">
+
+     <section className="panel closer-panel" aria-label="Bibliothèque commerciale WhatsApp">
+      <div className="panel-header"><div><h2>Closer 2.0 · Réponses rapides</h2>
+       <p>{closerStageNames[selectedWhatsappStage]} · {info.label} · Chaque texte est distinct et s'adapte à un signal précis.</p>
+      </div><Badge tone="mint">{closingPlaybooks[brand].filter(m=>m.step===selectedWhatsappStage).length} situations</Badge></div>
+      <div className="closer-guidance"><Sparkles size={17}/>
+       <p>Créer l'envie de découvrir un autre avenir, puis aider à évaluer l'activité sans pression. Envoyer manuellement après avoir compris le besoin; ne pas masquer les coûts, le travail ni les risques.</p>
+      </div>
+      <div className="closer-grid">
+       {closingPlaybooks[brand].filter(m=>m.step===selectedWhatsappStage).map(m=><article className="closer-card" key={m.id}>
+        <div className="closer-card-heading"><span className="closer-keyword">{m.keyword}</span><h3>{m.title}</h3></div>
+        <p className="closer-trigger"><Target size={14}/> {m.trigger}</p>
+        <p className="closer-copy">{m.message}</p>
+        <div className="closer-card-footer"><span><ArrowRight size={15}/>{m.nextAction}</span>
+         <button className="btn btn-outline" type="button" onClick={()=>copyText(m.message)}><Copy size={15}/> Copier</button>
+        </div>
+       </article>)}
+      </div>
+     </section>
+     {selectedWhatsappStage!=='1'&&<div className="panel" id="studio-whatsapp-sequences">
       <div className="panel-header">
-       <div><h2>Séquences d'accueil et de présentation</h2><p>{selectedWhatsappStage==='1'?'Messages d’accueil pour les conversations privées':selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
+       <div><h2>Messages spécifiques aux présentations</h2><p>{selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
        {raw.config.whatsapp?.startsWith('https://')?
         <a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-whatsapp"><SiWhatsapp size={19}/> Ouvrir WhatsApp <ExternalLink size={13}/></a>:
         <button type="button" className="btn btn-whatsapp" onClick={()=>notify('Aucun lien WhatsApp n’est renseigné pour cette marque','warning')}><SiWhatsapp size={19}/> Lien WhatsApp manquant</button>}
@@ -696,7 +716,7 @@ export default function Studio(){
          </article>;
        })}
       </div>
-     </div>
+     </div>}
      <div className="panel whatsapp-disclaimer"><Info size={18}/><p>Les messages sont préparés pour un envoi manuel. Les tarifs, témoignages et conditions commerciales doivent être vérifiés avant communication.</p></div>
     </>}
 
