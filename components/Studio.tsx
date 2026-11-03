@@ -809,7 +809,7 @@ export default function Studio(){
    <p>Ce lien donne accès au compte : transmettez-le uniquement en privé au destinataire. Il expire selon la durée configurée dans Supabase Auth. Aucun e-mail n’a été envoyé.</p>
    <button type="button" className="btn btn-outline" onClick={()=>copyText(manualInvite.link)}><Copy size={15}/> Copier le lien privé</button>
    <button type="button" className="btn btn-outline" onClick={()=>setManualInvite(null)}>Masquer le lien</button>
-  </div>
+  </div>}
  </div>
  <div style={{marginTop:15,display:'grid',gap:8}}>
  {grantRows.map(g=><div key={g.brand_id+'-'+g.email} style={{display:'flex',alignItems:'center',gap:9,justifyContent:'space-between',padding:'9px 12px',background:'#f5f8ff',borderRadius:10,flexWrap:'wrap'}}>
