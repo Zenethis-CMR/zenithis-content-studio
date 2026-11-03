@@ -12,9 +12,9 @@ import {
   FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
 } from 'lucide-react';
-import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace } from '@/lib/types';
-import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace } from '@/lib/studio-db';
-import { BRAND_INFO, templates, createPosts, seededMedia, statuses, normalizeStatus, labelForType, asDate, longDate, shortDate, byDate, socialChannels, downloadJson } from '@/lib/data';
+import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
+import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
+import { BRAND_INFO, emptyLibrary, seededMedia, statuses, normalizeStatus, labelForType, asDate, longDate, shortDate, byDate, socialChannels, downloadJson } from '@/lib/data';
 
 type Toast = { message: string; kind?: 'success' | 'info' | 'warning' } | null;
 type LocalWorkspace = PersistentWorkspace;
@@ -22,7 +22,7 @@ type BrandRole = 'owner' | 'editor' | 'viewer';
 type AccessState = {isSuperadmin:boolean;roles:Partial<Record<BrandId,BrandRole>>;allowedBrands:BrandId[]};
 type GrantRow = {email:string;brand_id:BrandId;role:BrandRole;created_at?:string};
 const emptyMetrics={messages:0,qualified:0,registrations:0,attendees:0};
-const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:createPosts(id),variants:templates[id].variants.map(x=>({...x})),media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
+const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:[],variants:[],media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
 const initialAll=():Record<BrandId,LocalWorkspace>=>({bonas:initialWorkspace('bonas'),lzo:initialWorkspace('lzo')});
 const nav:[View,string,React.ComponentType<{size?:number;strokeWidth?:number}>][]=[
  ['overview','Vue d’ensemble',LayoutDashboard],['planning','Programmation',CalendarClock],['calendar','Calendrier',CalendarDays],['kanban','Kanban éditorial',Columns3],['media','Médiathèque',Images],['editor','Éditeur de contenu',PenSquare],['video','Scripts vidéo',Video],['campaigns','Campagnes éditoriales',Megaphone],['whatsapp','WhatsApp & séminaires',MessageCircle],['insights','Analyses',ChartNoAxesCombined],['research','Veille & angles',Target],['sources','Sources & références',Library],['settings','Paramètres',Settings2]
@@ -49,6 +49,7 @@ export default function Studio(){
  const [brand,setBrand]=useState<BrandId>('bonas');
  const [view,setView]=useState<View>('overview');
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
+ const [libraries,setLibraries]=useState<Record<BrandId,WorkspaceData>>({bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')});
  const [ready,setReady]=useState(false);
  const [user,setUser]=useState<{id:string;email?:string}|null>(null);
  const [authEmail,setAuthEmail]=useState('');
@@ -128,21 +129,29 @@ export default function Studio(){
       setDbProblem('Aucun espace ne vous a encore été attribué. Demandez une invitation au propriétaire de la marque ou au super-administrateur.');
       return;
     }
-    const local=typeof window==='undefined'?null:window.localStorage.getItem('zenithis-studio-v2');
-    let previous:Partial<Record<BrandId,LocalWorkspace>>|null=null;
-    try{previous=local?JSON.parse(local):null}catch{}
+    // Each brand is queried only after server-backed authorization has passed.
+    const editorial=await Promise.all(allowedBrands.map(async id=>({id,data:await readStudioLibrary(id)})));
     const records=await Promise.all(allowedBrands.map(async id=>{
-      const seed=previous?.[id]?.posts?.length?previous[id]!:initialWorkspace(id);
+      const library=editorial.find(x=>x.id===id)!.data;
+      const seed:LocalWorkspace={
+        posts:library.posts.map(p=>({...p,status:normalizeStatus(p.status)})),
+        variants:library.variants,
+        media:seededMedia.filter(m=>m.brand===id),
+        metrics:{...emptyMetrics},notes:''
+      };
       const record=await readWorkspace(id,seed,user.id);
       return {id,...record};
     }));
     if(!active)return;
     const next=initialAll();
+    const nextLibraries:{bonas:WorkspaceData;lzo:WorkspaceData}={bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')};
+    for(const entry of editorial)nextLibraries[entry.id]=entry.data;
     for(const record of records){
       next[record.id]=record.data;
       versionRef.current[record.id]=record.version;
       snapshotRef.current[record.id]=JSON.stringify(encodeWorkspace(record.data));
     }
+    setLibraries(nextLibraries);
     setBrand(prev=>allowedBrands.includes(prev)?prev:allowedBrands[0]);
     setWorkspaces(next);
     setReady(true);
@@ -180,7 +189,7 @@ export default function Studio(){
   return()=>timeouts.forEach(clearTimeout);
  },[workspaces,ready,user?.id,access]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t)},[toast]);
- const info=BRAND_INFO[brand], raw=templates[brand], ws=workspaces[brand];
+ const info=BRAND_INFO[brand], raw=libraries[brand], ws=workspaces[brand];
  const allPosts=ws.posts;
  const selectedPost=allPosts.find(p=>p.id===selectedPostId) || null;
  const selectedMedia=ws.media.find(m=>m.id===selectedMediaId)||null;
