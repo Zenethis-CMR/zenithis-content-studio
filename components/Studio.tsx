@@ -202,8 +202,8 @@ export default function Studio(){
   if(!canEdit(id)){notify('Accès en lecture seule','warning');return}
   setWorkspaces(old=>({...old,[id]:fn(old[id])}));
  };
- const updatePost=(id:string,patch:Partial<ContentPost>)=>{modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===id?{...p,...patch}:p)}));notify('Contenu mis à jour dans cet espace de travail')};
- const updateVariant=(id:string,patch:Partial<ChannelVariant>)=>{modifyWs(brand,w=>({...w,variants:w.variants.map(v=>v.id===id?{...v,...patch}:v)}));notify('Déclinaison enregistrée')};
+ const updatePost=(id:string,patch:Partial<ContentPost>)=>{if(!canEdit(brand)){notify('Lecture seule','warning');return}modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===id?{...p,...patch}:p)}));notify('Contenu mis à jour dans cet espace de travail')};
+ const updateVariant=(id:string,patch:Partial<ChannelVariant>)=>{if(!canEdit(brand)){notify('Lecture seule','warning');return}modifyWs(brand,w=>({...w,variants:w.variants.map(v=>v.id===id?{...v,...patch}:v)}));notify('Déclinaison enregistrée')};
  const jumpToPost=(id:string,where:View='editor')=>{setSelectedPostId(id);setEditorDraft({});setEditTab('contenu');setView(where);setMobileMenu(false)};
  const exportBackup=()=>{
   if(!access)return;
@@ -237,6 +237,45 @@ export default function Studio(){
     modifyWs(brand,w=>({...w,media:[asset,...w.media]}));
     notify('Fichier téléversé dans Supabase Storage et ajouté à la médiathèque');
   }catch(e){notify('Échec du téléversement : '+(e instanceof Error?e.message:String(e)),'warning')}
+ };
+ const manageableBrands=(access?.allowedBrands||[]).filter(id=>canManage(id));
+ const refreshGrantRows=async()=>{
+  if(!studioClient||!manageableBrands.length)return;
+  const {data,error}=await studioClient.from('studio_brand_access')
+    .select('email,brand_id,role,created_at')
+    .in('brand_id',manageableBrands)
+    .order('brand_id').order('email');
+  if(error){notify('Impossible de charger les accès : '+error.message,'warning');return}
+  setGrantRows((data||[]) as GrantRow[]);
+ };
+ useEffect(()=>{
+  if(view==='settings'&&ready&&manageableBrands.length)void refreshGrantRows();
+ },[view,brand,ready,user?.id,access?.isSuperadmin,access?.roles.bonas,access?.roles.lzo]);
+ const grantAccess=async()=>{
+  if(!studioClient||!user||inviteBusy)return;
+  const targetBrand=manageableBrands.includes(inviteBrand)?inviteBrand:manageableBrands[0];
+  const normalized=inviteEmail.trim().toLowerCase();
+  if(!targetBrand||!canManage(targetBrand)){notify('Vous ne pouvez pas inviter dans cette marque','warning');return}
+  if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalized)){notify('Adresse e-mail invalide','warning');return}
+  if(inviteRole==='owner'&&!access?.isSuperadmin){notify('Seul le super-administrateur peut nommer un propriétaire','warning');return}
+  if(normalized===user.email?.trim().toLowerCase() && !access?.isSuperadmin){notify('Vous ne pouvez pas modifier votre propre accès','warning');return}
+  setInviteBusy(true);
+  const {error}=await studioClient.from('studio_brand_access').upsert({
+    email:normalized,brand_id:targetBrand,role:inviteRole,granted_by:user.id
+  },{onConflict:'email,brand_id'});
+  setInviteBusy(false);
+  if(error){notify('Autorisation refusée : '+error.message,'warning');return}
+  setInviteEmail('');notify('Accès accordé. La personne peut se connecter par e-mail.');
+  await refreshGrantRows();
+ };
+ const revokeGrant=async(grant:GrantRow)=>{
+  if(!studioClient||!canManage(grant.brand_id))return;
+  if(grant.role==='owner'&&!access?.isSuperadmin){notify('Seul le super-administrateur peut retirer un propriétaire','warning');return}
+  if(!window.confirm('Retirer l’accès de '+grant.email+' à '+BRAND_INFO[grant.brand_id].label+' ?'))return;
+  const {error}=await studioClient.from('studio_brand_access').delete()
+   .eq('email',grant.email).eq('brand_id',grant.brand_id);
+  if(error){notify('Révocation refusée : '+error.message,'warning');return}
+  notify('Accès retiré');await refreshGrantRows();
  };
  const copyText=(text:string)=>{navigator.clipboard?.writeText(text).then(()=>notify('Texte copié')).catch(()=>notify('Copie indisponible dans ce navigateur','warning'))};
  const openEditor=(post:ContentPost)=>jumpToPost(post.id);
@@ -283,21 +322,27 @@ export default function Studio(){
  <input id="studio-email" required type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} style={{display:'block',width:'100%',padding:14,border:'1px solid #ccd6ed',borderRadius:10,margin:'12px 0'}} />
  <button className="btn btn-primary" type="submit">Recevoir mon lien de connexion</button><p role="status">{authMessage}</p>
  </form></main>;
+ if(access&&access.allowedBrands.length===0)return <main style={authPanel}><div style={authCard}>
+ <h1>Accès en attente</h1><p>Le compte <strong>{user.email}</strong> est authentifié, mais n’a accès à aucune marque.</p>
+ <p>Demande au propriétaire de BONAS-INC, de LZO Empire ou au super-administrateur de t’autoriser depuis Paramètres → Accès aux marques.</p>
+ <button type="button" className="btn btn-outline" onClick={()=>window.location.reload()}>Actualiser mes autorisations</button>
+ <button type="button" className="btn btn-outline" style={{marginLeft:10}} onClick={()=>studioClient?.auth.signOut()}>Se déconnecter</button>
+ </div></main>;
  if(!ready)return <main style={authPanel}><div style={authCard}><h2>Chargement des données</h2><p>{dbProblem||dbMessage}</p>
- {dbProblem&&<><p>Vérifiez la migration SQL et les autorisations studio_members du compte {user.email}.</p><button className="btn btn-outline" onClick={()=>studioClient?.auth.signOut()}>Changer de compte</button></>}
+ {dbProblem&&<><p>Vérifiez les autorisations de marque dans Supabase pour le compte {user.email}.</p><button className="btn btn-outline" onClick={()=>studioClient?.auth.signOut()}>Changer de compte</button></>}
  </div></main>;
  return <div className="studio-shell" style={{'--brand-accent':info.color,'--brand-light':info.light} as React.CSSProperties}>
   <div style={{position:'fixed',right:12,bottom:12,zIndex:9999,background:dbProblem?'#fff0f0':'#e8fff4',border:'1px solid #b3dfc4',borderRadius:9,padding:'9px 14px',fontSize:12,maxWidth:460,boxShadow:'0 3px 15px #0c22441c'}} role="status">{dbProblem?'⚠ '+dbProblem:'☁ '+dbMessage}</div>
   <aside className={'sidebar '+(mobileMenu?'sidebar-open':'')}>
     <div className="logo-row"><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span><IconButton className="mobile-dismiss" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
-    <div className="sidebar-workspace"><div className="eyebrow">ESPACE DE TRAVAIL</div><button className="workspace-switcher" onClick={()=>switchBrand(brand==='bonas'?'lzo':'bonas')} title="Basculer de marque"><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>{info.person}</small></span><ChevronDown size={16}/></button></div>
+    <div className="sidebar-workspace"><div className="eyebrow">ESPACE DE TRAVAIL</div>{(access?.allowedBrands.length||0)>1?<button className="workspace-switcher" onClick={()=>switchBrand(brand==='bonas'?'lzo':'bonas')} title="Basculer entre les marques autorisées"><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>{info.person}</small></span><ChevronDown size={16}/></button>:<div className="workspace-switcher" aria-label={'Espace '+info.label}><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>Votre espace exclusif</small></span><Check size={16}/></div>}</div>
     <div className="sidebar-label">WORKSPACE</div>
     <nav className="side-nav" aria-label="Navigation principale">{nav.map(([key,label,Icon])=><button type="button" onClick={()=>{setView(key);setMobileMenu(false);setSearch('')}} key={key} className={'nav-link '+(view===key?'nav-active':'')}><Icon size={19} strokeWidth={1.9}/><span>{label}</span>{key==='planning'&&<span className="nav-count">{stats.posts}</span>}</button>)}</nav>
-    <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={16}/> CONSEIL DU STUDIO</span><p>Un bon contenu explique avant de convaincre.</p><button onClick={()=>setView('sources')}>Consulter les sources <ArrowRight size={14}/></button></div><div className="sidebar-foot"><span className="online-dot"/> Sauvegarde locale active</div></div>
+    <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={16}/> CONSEIL DU STUDIO</span><p>Un bon contenu explique avant de convaincre.</p><button onClick={()=>setView('sources')}>Consulter les sources <ArrowRight size={14}/></button></div><div className="sidebar-foot"><span className="online-dot"/> Supabase · Accès sécurisés</div></div>
   </aside>
   {mobileMenu&&<div className="mobile-overlay" onClick={()=>setMobileMenu(false)}/>}
   <div className="app-column">
-   <header className="topbar"><IconButton className="hamburger" title="Menu" onClick={()=>setMobileMenu(true)}><Menu size={21}/></IconButton><div className="global-search"><Search size={19}/><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="Recherche globale" placeholder="Rechercher un contenu, un projet, un mot-clé..."/><kbd>⌘ K</kbd></div><div className="topbar-actions"><span className="session-date"><CalendarDays size={15}/> Novembre 2026</span><IconButton onClick={exportBackup} title="Exporter une sauvegarde"><Download size={19}/></IconButton><span className="topbar-divider"/><button className="profile" onClick={()=>setView('settings')}><span className="avatar">{info.initial}</span><span><strong>{info.person.split(' ')[0]}</strong><small>{info.label} · Édition</small></span><ChevronDown size={14}/></button></div></header>
+   <header className="topbar"><IconButton className="hamburger" title="Menu" onClick={()=>setMobileMenu(true)}><Menu size={21}/></IconButton><div className="global-search"><Search size={19}/><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="Recherche globale" placeholder="Rechercher un contenu, un projet, un mot-clé..."/><kbd>⌘ K</kbd></div><div className="topbar-actions"><span className="session-date"><CalendarDays size={15}/> Novembre 2026</span><IconButton onClick={exportBackup} title="Exporter une sauvegarde"><Download size={19}/></IconButton><span className="topbar-divider"/><button className="profile" onClick={()=>setView('settings')}><span className="avatar">{info.initial}</span><span><strong>{user.email?.split('@')[0]||info.person.split(' ')[0]}</strong><small>{access?.isSuperadmin?'Super-administrateur':(access?.roles[brand]==='owner'?'Propriétaire · ':access?.roles[brand]==='viewer'?'Lecture seule · ':'Éditeur · ')+info.label}</small></span><ChevronDown size={14}/></button></div></header>
    <main className="workspace-main">
     <section className="hero"><div><div className="hero-eyebrow"><Sparkles size={15}/> STUDIO DE PUBLICATION</div><h1><BannerIcon size={31}/> {banner.title}</h1><p>{banner.subtitle}</p></div><div className="hero-illustration" aria-hidden="true"><div className="hero-orbit orbit-one"/><div className="hero-orbit orbit-two"/><div className="hero-card card-back"><span>APR</span><b>24</b><i/></div><div className="hero-card card-front"><span>STUDIO</span><b>✦</b><div className="hero-wave"/></div></div><span className="hero-signature">Vos idées méritent<br/>d’aller plus loin.</span></section>
     {view!=='editor'&&<div className="section-toolbar"><div className="brand-banner"><span className="brand-banner-mark">{info.initial}</span><span><strong>{info.label}</strong><small>{raw.config.tagline}</small></span></div><div className="toolbar-buttons"><button className="btn btn-ghost" onClick={exportBackup}><Download size={16}/> Sauvegarder</button><button className="btn btn-primary" onClick={()=>setNewModal(true)}><Plus size={17}/> Nouveau contenu</button></div></div>}
@@ -355,7 +400,29 @@ export default function Studio(){
 
     {view==='sources'&&<div className="panel"><div className="panel-header"><div><h2>Bibliothèque de sources</h2><p>Références utilisées pour les contenus et la veille concurrentielle.</p></div><Badge tone="blue">{raw.sources.length} références</Badge></div><div className="source-list">{raw.sources.map(s=><div key={s.id} className="source-row"><div className="source-icon"><BookOpenIcon/></div><div><h3>{s.name}</h3><p>{s.purpose}</p><small>{s.type} · {s.status}</small>{s.caution&&<small className="caution-text">{clean(s.caution,160)}</small>}</div>{s.url?.startsWith('http')?<a href={s.url} target="_blank" rel="noopener noreferrer" className="source-open" title="Voir la référence"><ExternalLink size={17}/></a>:<span className="muted">Référence interne</span>}</div>)}</div></div>}
 
-    {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(['bonas','lzo'] as BrandId[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div><div className="setting-section"><h3>Notes internes</h3><textarea className="settings-notes" rows={6} value={ws.notes} onChange={e=>modifyWs(brand,w=>({...w,notes:e.target.value}))} placeholder="Ajoutez vos consignes, décisions et rappels pour cette marque..."/><small>Enregistrement automatique dans la base Supabase</small></div><div className="setting-section"><h3>Sauvegarde et restauration</h3><p>Données synchronisées via Supabase et accessibles aux membres autorisés. Gardez aussi une sauvegarde JSON.</p><div className="toolbar-buttons"><button className="btn btn-primary" onClick={exportBackup}><Download size={17}/> Exporter toute la sauvegarde</button><button className="btn btn-outline" onClick={()=>importInput.current?.click()}><Upload size={17}/> Importer une sauvegarde</button><input ref={importInput} accept="application/json,.json" type="file" style={{display:'none'}} onChange={e=>importBackup(e.target.files?.[0])}/></div></div></section><aside className="panel security-panel"><div className="security-symbol"><AlertTriangle size={27}/></div><h3>Avant de travailler à plusieurs</h3><p>Cette V1 utilise le stockage du navigateur. Pour synchroniser les modifications entre Sandrine, Laurence et l'équipe, il faudra connecter une base de données, une authentification et des permissions.</p><p>Le déploiement public ne doit pas être considéré comme un espace sécurisé sans protection d'accès.</p><div className="detail-line"><span>Publication auto</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>WhatsApp API</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>Sauvegarde locale</span><Badge tone="mint">Active</Badge></div></aside></div>}
+    {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(access?.allowedBrands||[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div>
+ {(manageableBrands.length>0)&&<div className="setting-section">
+ <h3><Users size={18} style={{verticalAlign:'middle',marginRight:8}}/>Accès aux marques</h3>
+ <p>Autorisez des utilisateurs par adresse e-mail. Ils recevront leur lien de connexion en le demandant depuis l’application. Seuls les propriétaires et le super-administrateur peuvent accorder des accès.</p>
+ <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginTop:12}}>
+ <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="adresse@email.com" aria-label="Adresse de l’utilisateur à inviter" style={{padding:11,border:'1px solid #d6dff4',borderRadius:9}}/>
+ <select aria-label="Espace à partager" value={manageableBrands.includes(inviteBrand)?inviteBrand:manageableBrands[0]} onChange={e=>setInviteBrand(e.target.value as BrandId)} style={{padding:11,border:'1px solid #d6dff4',borderRadius:9}}>
+ {manageableBrands.map(id=><option key={id} value={id}>{BRAND_INFO[id].label}</option>)}
+ </select>
+ <select aria-label="Niveau d’accès" value={inviteRole} onChange={e=>setInviteRole(e.target.value as BrandRole)} style={{padding:11,border:'1px solid #d6dff4',borderRadius:9}}>
+ <option value="editor">Éditeur</option><option value="viewer">Lecture seule</option>{access?.isSuperadmin&&<option value="owner">Propriétaire</option>}
+ </select>
+ <button type="button" className="btn btn-primary" disabled={inviteBusy} onClick={()=>void grantAccess()}>{inviteBusy?'Enregistrement…':'Autoriser l’accès'}</button>
+ </div>
+ <div style={{marginTop:15,display:'grid',gap:8}}>
+ {grantRows.map(g=><div key={g.brand_id+'-'+g.email} style={{display:'flex',alignItems:'center',gap:9,justifyContent:'space-between',padding:'9px 12px',background:'#f5f8ff',borderRadius:10,flexWrap:'wrap'}}>
+ <span><strong>{g.email}</strong><br/><small>{BRAND_INFO[g.brand_id].label} · {g.role==='owner'?'Propriétaire':g.role==='viewer'?'Lecture seule':'Éditeur'}</small></span>
+ {(g.role!=='owner'||access?.isSuperadmin)&&<button type="button" className="btn btn-outline" onClick={()=>void revokeGrant(g)}>Retirer</button>}
+ </div>)}
+ {!grantRows.length&&<p>Aucun accès individuel ajouté pour les marques administrées.</p>}
+ </div>
+ </div>}
+ <div className="setting-section"><h3>Notes internes</h3><textarea className="settings-notes" rows={6} value={ws.notes} onChange={e=>modifyWs(brand,w=>({...w,notes:e.target.value}))} placeholder="Ajoutez vos consignes, décisions et rappels pour cette marque..."/><small>Enregistrement automatique dans la base Supabase</small></div><div className="setting-section"><h3>Compte connecté</h3><p>{user.email} · {access?.isSuperadmin?'Super-administrateur':access?.roles[brand]==='owner'?'Propriétaire':access?.roles[brand]==='viewer'?'Lecture seule':'Éditeur'}</p><button type="button" className="btn btn-outline" onClick={()=>studioClient?.auth.signOut()}>Se déconnecter</button></div><div className="setting-section"><h3>Sauvegarde et restauration</h3><p>Données synchronisées via Supabase et accessibles aux membres autorisés. Gardez aussi une sauvegarde JSON.</p><div className="toolbar-buttons"><button className="btn btn-primary" onClick={exportBackup}><Download size={17}/> Exporter toute la sauvegarde</button><button className="btn btn-outline" onClick={()=>importInput.current?.click()}><Upload size={17}/> Importer une sauvegarde</button><input ref={importInput} accept="application/json,.json" type="file" style={{display:'none'}} onChange={e=>importBackup(e.target.files?.[0])}/></div></div></section><aside className="panel security-panel"><div className="security-symbol"><AlertTriangle size={27}/></div><h3>Avant de travailler à plusieurs</h3><p>Supabase synchronise les documents et la médiathèque. Les permissions sont contrôlées dans PostgreSQL par des politiques RLS propres à chaque marque.</p><p>Le déploiement public ne doit pas être considéré comme un espace sécurisé sans protection d'accès.</p><div className="detail-line"><span>Publication auto</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>WhatsApp API</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>Sauvegarde locale</span><Badge tone="mint">Active</Badge></div></aside></div>}
 
    </main>
   </div>
