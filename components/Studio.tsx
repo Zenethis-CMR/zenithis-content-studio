@@ -746,33 +746,44 @@ export default function Studio(){
        </article>)}
       </div>
      </section>
-     {selectedWhatsappStage==='2'&&<div className="panel" id="studio-whatsapp-events">
+     {selectedWhatsappStage==='2'&&<section className="panel" id="studio-whatsapp-events">
       <div className="panel-header">
-       <div><h2>Messages spécifiques aux présentations</h2><p>{selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
+       <div><h2>Ateliers de découverte · {info.label}</h2>
+        <p>Huit thèmes progressifs pour se projeter, comprendre les étapes puis poser les bonnes questions. Invitations manuelles à personnaliser.</p>
+       </div>
        {raw.config.whatsapp?.startsWith('https://')?
         <a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-whatsapp"><SiWhatsapp size={19}/> Ouvrir WhatsApp <ExternalLink size={13}/></a>:
         <button type="button" className="btn btn-whatsapp" onClick={()=>notify('Aucun lien WhatsApp n’est renseigné pour cette marque','warning')}><SiWhatsapp size={19}/> Lien WhatsApp manquant</button>}
       </div>
+      <div className="workshop-info-banner"><Info size={17}/>
+       <p>Les dates sont indicatives : horaires, intervenants et liens de séance doivent être confirmés avant l’envoi. Les messages n’annoncent aucun revenu garanti.</p>
+      </div>
       <div className="event-grid">
        {raw.events.map((evt:GroupEvent)=>{
-        const msg=evt.invitation;
-        const label='INVITATION SPÉCIFIQUE À CETTE PRÉSENTATION';
         const expanded=selectedEventId===evt.id;
-        return <article className={'event-card navigable-block '+(expanded?'event-card-active':'')} key={evt.id}
-          role="button" tabIndex={0} aria-expanded={expanded} aria-label={'Afficher la séquence '+evt.theme}
-          onClick={e=>activateBlock(e,()=>setSelectedEventId(expanded?'':evt.id))}
-          onKeyDown={e=>activateBlockKey(e,()=>setSelectedEventId(expanded?'':evt.id))}>
-          <div className="event-head"><Badge tone="blue">{evt.week}</Badge><span>{shortDate(evt.date)}</span><ChevronDown size={17} className={expanded?'workspace-chevron-open':''}/></div>
-          <h3>{evt.theme}</h3>
-          <div className="event-message"><span>{label}</span><p>{expanded?msg:clean(msg,280)}</p></div>
-          {expanded&&<div className="event-expanded"><strong>Suite du parcours</strong><p>{evt.flow||evt.condition||'Adapter le message et assurer le suivi personnalisé.'}</p><small>Copiez les messages avec les commandes ci-dessous.</small></div>}
+        return <article className={'event-card workshop-card '+(expanded?'event-card-active':'')} key={evt.id}>
+          <button type="button" className="workshop-toggle" aria-expanded={expanded}
+            aria-label={'Afficher le détail de '+evt.theme} onClick={()=>setSelectedEventId(expanded?'':evt.id)}>
+            <div className="event-head"><Badge tone="blue">{evt.week}</Badge><span>{shortDate(evt.date)} · prévisionnel</span><ChevronDown size={17} className={expanded?'workspace-chevron-open':''}/></div>
+            <h3>{evt.theme}</h3>
+          </button>
+          <div className="event-message"><span>INVITATION PERSONNALISÉE À L’ATELIER</span>
+           <p>{expanded?evt.invitation:clean(evt.invitation,310)}</p>
+          </div>
+          {expanded&&<div className="event-expanded workshop-expanded">
+           <div className="workshop-detail-block"><strong>Trame de la présentation</strong><p>{evt.flow}</p></div>
+           <div className="workshop-detail-block"><div className="workshop-detail-head"><strong>Rappel au participant inscrit</strong><button type="button" className="btn btn-outline" onClick={()=>copyText(evt.reminder)}><Copy size={14}/> Copier</button></div><p>{evt.reminder}</p></div>
+           <div className="workshop-detail-block"><div className="workshop-detail-head"><strong>Après la présentation</strong><button type="button" className="btn btn-outline" onClick={()=>copyText(evt.followUp)}><Copy size={14}/> Copier</button></div><p>{evt.followUp}</p></div>
+           <div className="workshop-detail-block workshop-conditions"><strong>Avant tout envoi</strong><p>{evt.condition}</p></div>
+          </div>}
           <div className="event-controls">
-           <button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Copier cette invitation</button>
+           <button type="button" onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Copier l’invitation</button>
+           <button type="button" onClick={()=>setSelectedEventId(expanded?'':evt.id)}>{expanded?'Masquer les détails':'Voir le rappel et le suivi'} <ChevronDown size={15}/></button>
           </div>
          </article>;
        })}
       </div>
-     </div>}
+     </section>}
      <div className="panel whatsapp-disclaimer"><Info size={18}/><p>Les messages sont préparés pour un envoi manuel. Les tarifs, témoignages et conditions commerciales doivent être vérifiés avant communication.</p></div>
     </>}
 
