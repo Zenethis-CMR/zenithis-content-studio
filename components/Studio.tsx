@@ -8,7 +8,7 @@ import {
   CircleCheck, Download, Upload, ExternalLink, Copy, Filter, CalendarCheck, Users,
   Eye, Send, FileText, Play, MoreHorizontal, Sparkles, LayoutGrid, List, Menu,
   Bookmark, Pencil, Trash2, MoveRight, Target, TrendingUp, ArrowRight, Activity,
-  MapPin, ClipboardCheck, Info, RotateCcw, CircleAlert, SlidersHorizontal, Link2,
+  MapPin, ClipboardCheck, Info, RotateCcw, CircleAlert, SlidersHorizontal, Link2, LogOut,
   FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
 } from 'lucide-react';
@@ -76,6 +76,8 @@ export default function Studio(){
  const [brand,setBrand]=useState<BrandId>('bonas');
  const [brandMenuOpen,setBrandMenuOpen]=useState(false);
  const brandMenuRef=useRef<HTMLDivElement>(null);
+ const [profileMenuOpen,setProfileMenuOpen]=useState(false);
+ const profileMenuRef=useRef<HTMLDivElement>(null);
  const [view,setView]=useState<View>('overview');
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
  const [libraries,setLibraries]=useState<Record<BrandId,WorkspaceData>>({bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')});
@@ -242,7 +244,7 @@ export default function Studio(){
  const stats={posts:allPosts.length,variants:ws.variants.length,videos:raw.scripts.length,published:pipeline.find(x=>x.name==='Publié')?.count||0,scheduled:pipeline.find(x=>x.name==='Programmé')?.count||0};
  const countsByWeek=useMemo(()=>Array.from({length:8},(_,i)=>{const week=`S${i+1}`;return {week,planned:allPosts.filter(p=>p.week===week).length,published:allPosts.filter(p=>p.week===week&&normalizeStatus(p.status)==='Publié').length}}),[allPosts]);
  const notify=(message:string,kind:'success'|'info'|'warning'='success')=>setToast({message,kind});
- const switchBrand=(id:BrandId)=>{setBrandMenuOpen(false);if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}if(id===brand)return;setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
+ const switchBrand=(id:BrandId)=>{setBrandMenuOpen(false);setProfileMenuOpen(false);if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}if(id===brand)return;setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
  useEffect(()=>{
   if(!brandMenuOpen)return;
   const closeOutside=(event:MouseEvent)=>{if(!brandMenuRef.current?.contains(event.target as Node))setBrandMenuOpen(false)};
@@ -251,6 +253,14 @@ export default function Studio(){
   document.addEventListener('keydown',closeEscape);
   return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',closeEscape)};
  },[brandMenuOpen]);
+ useEffect(()=>{
+  if(!profileMenuOpen)return;
+  const closeOutside=(event:PointerEvent)=>{if(!profileMenuRef.current?.contains(event.target as Node))setProfileMenuOpen(false)};
+  const closeEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setProfileMenuOpen(false)};
+  document.addEventListener('pointerdown',closeOutside);
+  document.addEventListener('keydown',closeEscape);
+  return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',closeEscape)};
+ },[profileMenuOpen]);
  const canEdit=(id:BrandId)=>!!access && access.allowedBrands.includes(id) && (access.isSuperadmin || access.roles[id]!=='viewer');
  const canManage=(id:BrandId)=>!!access && access.allowedBrands.includes(id) && (access.isSuperadmin || access.roles[id]==='owner');
  const modifyWs=(id:BrandId,fn:(p:LocalWorkspace)=>LocalWorkspace)=>{
@@ -421,7 +431,19 @@ export default function Studio(){
   </aside>
   {mobileMenu&&<div className="mobile-overlay" onClick={()=>setMobileMenu(false)}/>}
   <div className="app-column">
-   <header className="topbar"><IconButton className="hamburger" title="Menu" onClick={()=>setMobileMenu(true)}><Menu size={21}/></IconButton><div className="global-search"><Search size={19}/><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="Recherche globale" placeholder="Rechercher un contenu, un projet, un mot-clé..."/><kbd>⌘ K</kbd></div><div className="topbar-actions"><span className="session-date"><CalendarDays size={15}/> Novembre 2026</span><IconButton onClick={exportBackup} title="Exporter une sauvegarde"><Download size={19}/></IconButton><span className="topbar-divider"/><button className="profile" onClick={()=>setView('settings')}><span className="avatar">{info.initial}</span><span><strong>{user.email?.split('@')[0]||info.person.split(' ')[0]}</strong><small>{access?.isSuperadmin?'Super-administrateur':(access?.roles[brand]==='owner'?'Propriétaire · ':access?.roles[brand]==='viewer'?'Lecture seule · ':'Éditeur · ')+info.label}</small></span><ChevronDown size={14}/></button></div></header>
+   <header className="topbar"><IconButton className="hamburger" title="Menu" onClick={()=>setMobileMenu(true)}><Menu size={21}/></IconButton><div className="global-search"><Search size={19}/><input value={search} onChange={e=>setSearch(e.target.value)} aria-label="Recherche globale" placeholder="Rechercher un contenu, un projet, un mot-clé..."/><kbd>⌘ K</kbd></div><div className="topbar-actions"><span className="session-date"><CalendarDays size={15}/> Novembre 2026</span><IconButton onClick={exportBackup} title="Exporter une sauvegarde"><Download size={19}/></IconButton><span className="topbar-divider"/><div className="profile-menu-wrap" ref={profileMenuRef}>
+ <button type="button" className={'profile profile-trigger'+(profileMenuOpen?' profile-trigger-open':'')} aria-haspopup="menu" aria-expanded={profileMenuOpen} aria-controls="studio-profile-menu"
+  onClick={()=>{setBrandMenuOpen(false);setProfileMenuOpen(v=>!v)}}>
+  <span className="avatar">{info.initial}</span><span><strong>{user.email?.split('@')[0]||info.person.split(' ')[0]}</strong>
+  <small>{access?.isSuperadmin?'Super-administrateur':(access?.roles[brand]==='owner'?'Propriétaire · ':access?.roles[brand]==='viewer'?'Lecture seule · ':'Éditeur · ')+info.label}</small></span>
+  <ChevronDown className={profileMenuOpen?'workspace-chevron-open':''} size={14}/>
+ </button>
+ {profileMenuOpen&&<div id="studio-profile-menu" className="profile-dropdown" role="menu" aria-label="Menu utilisateur">
+  <div className="profile-dropdown-header"><strong>{user.email}</strong><small>{access?.isSuperadmin?'Super-administrateur':'Compte d’équipe'}</small></div>
+  <button type="button" role="menuitem" onClick={()=>{setView('settings');setProfileMenuOpen(false)}}><Settings2 size={17}/> Paramètres et accès</button>
+  <button type="button" role="menuitem" onClick={()=>{setProfileMenuOpen(false);void studioClient?.auth.signOut()}}><LogOut size={17}/> Se déconnecter</button>
+ </div>}
+ </div></div></header>
    <main className="workspace-main">
     <section className="hero"><div><div className="hero-eyebrow"><Sparkles size={15}/> STUDIO DE PUBLICATION</div><h1><BannerIcon size={31}/> {banner.title}</h1><p>{banner.subtitle}</p></div><div className="hero-illustration" aria-hidden="true"><div className="hero-orbit orbit-one"/><div className="hero-orbit orbit-two"/><div className="hero-card card-back"><span>APR</span><b>24</b><i/></div><div className="hero-card card-front"><span>STUDIO</span><b>✦</b><div className="hero-wave"/></div></div><span className="hero-signature">Vos idées méritent<br/>d’aller plus loin.</span></section>
     {view!=='editor'&&<div className="section-toolbar"><div className="brand-banner"><span className="brand-banner-mark">{info.initial}</span><span><strong>{info.label}</strong><small>{raw.config.tagline}</small></span></div><div className="toolbar-buttons"><button className="btn btn-ghost" onClick={exportBackup}><Download size={16}/> Sauvegarder</button><button className="btn btn-primary" onClick={()=>setNewModal(true)}><Plus size={17}/> Nouveau contenu</button></div></div>}
