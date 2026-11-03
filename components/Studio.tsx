@@ -10,11 +10,14 @@ import {
   Bookmark, Pencil, Trash2, MoveRight, Target, TrendingUp, ArrowRight, Activity,
   MapPin, ClipboardCheck, Info, RotateCcw, CircleAlert, SlidersHorizontal, Link2, LogOut,
   FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
-  CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
+  CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle, Mail
 } from 'lucide-react';
 import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
 import {StudioLogin,StudioOnboarding} from './StudioAuth';
 import {TeloPraPanel} from './TeloPraPanel';
+import {closingPlaybooks,closerStageNames} from '@/lib/closing-playbooks';
+import {editorialAlternatives,campaignDreams,campaignWeekThemes} from '@/lib/editorial-closer-v2';
+import {createContentExample} from '@/lib/content-examples';
 import {parseStudioRoute,serializeStudioRoute} from '@/lib/studio-routing';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
 import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
@@ -100,6 +103,8 @@ export default function Studio(){
  const [inviteBrand,setInviteBrand]=useState<BrandId>('bonas');
  const [inviteRole,setInviteRole]=useState<BrandRole>('editor');
  const [inviteBusy,setInviteBusy]=useState(false);
+ const [inviteFeedback,setInviteFeedback]=useState<{kind:'error'|'success'|'info';code?:string;message:string}|null>(null);
+ const [manualInvite,setManualInvite]=useState<{email:string;link:string}|null>(null);
  const [dbMessage,setDbMessage]=useState('Connexion à la base…');
  const [dbProblem,setDbProblem]=useState('');
  const versionRef=useRef<Record<BrandId,number>>({bonas:0,lzo:0});
@@ -114,6 +119,7 @@ export default function Studio(){
  const [calendarMonth,setCalendarMonth]=useState(new Date(2026,10,1));
  const [selectedDate,setSelectedDate]=useState('2026-11-09');
  const [calendarMode,setCalendarMode]=useState<'Mois'|'Semaine'|'Agenda'>('Mois');
+ const [showCloserPreviews,setShowCloserPreviews]=useState(true);
  const [kanbanFilter,setKanbanFilter]=useState('');
  const [mediaFilter,setMediaFilter]=useState('Tous');
  const [toast,setToast]=useState<Toast>(null);
@@ -314,6 +320,7 @@ export default function Studio(){
  const info=BRAND_INFO[brand], raw=libraries[brand], ws=workspaces[brand];
  const allPosts=ws.posts;
  const selectedPost=allPosts.find(p=>p.id===selectedPostId) || null;
+ const selectedExample=selectedPost?createContentExample(selectedPost,brand):null;
  const selectedMedia=ws.media.find(m=>m.id===selectedMediaId)||null;
  const currentVariants=selectedPost?ws.variants.filter(v=>v.postId===selectedPost.id):[];
  const chosenVariant=ws.variants.find(v=>v.id===variantId)||currentVariants[0];
@@ -381,7 +388,7 @@ export default function Studio(){
  };
  const addPost=()=>{
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
-  const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'PLAN B':'MON APRÈS',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Écris PLAN B':'Écris AVENIR',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
+  const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'Ambition & quotidien':'Expérience & liberté',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Dis-moi en privé ce que tu veux explorer.':'Écris-moi pour découvrir les étapes.',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
  const mediaUpload=async(file:File|undefined)=>{
   if(!file||!user||!studioClient)return;
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
@@ -405,6 +412,41 @@ export default function Studio(){
  useEffect(()=>{
   if(view==='settings'&&ready&&manageableBrands.length)void refreshGrantRows();
  },[view,brand,ready,user?.id,access?.isSuperadmin,access?.roles.bonas,access?.roles.lzo]);
+
+ const requestInvitation=async(grant:GrantRow,action:'send'|'manual_link'='send')=>{
+  if(!studioClient||inviteBusy||!canManage(grant.brand_id))return;
+  setInviteBusy(true);setInviteFeedback(null);setManualInvite(null);
+  try{
+   const {data,error}=await studioClient.functions.invoke('invite-studio-member',{
+    body:{email:grant.email,brand:grant.brand_id,role:grant.role,action}
+   });
+   let detail=data as {ok?:boolean;status?:string;code?:string;error?:string;notice?:string;link?:string}|null;
+   if(error){
+    const response=(error as {context?:Response}).context;
+    if(response?.json)try{detail=await response.clone().json()}catch{}
+   }
+   if(error||!detail?.ok){
+    const code=detail?.code||'EMAIL_DELIVERY_FAILED';
+    const msg=detail?.error||'L’envoi a échoué. Consultez les journaux d’authentification Supabase.';
+    setInviteFeedback({kind:'error',code,message:msg});
+    notify('Accès conservé. '+msg,'warning');
+    return;
+   }
+   if(action==='manual_link'){
+    if(!detail.link){setInviteFeedback({kind:'error',message:'Le lien sécurisé n’a pas été généré.'});return}
+    setManualInvite({email:grant.email,link:detail.link});
+    setInviteFeedback({kind:'success',message:'Lien créé, mais aucun e-mail n’a été envoyé. Copiez-le et transmettez-le uniquement à la personne concernée.'});
+    return;
+   }
+   if(detail.status==='existing-account'){
+    setInviteFeedback({kind:'info',message:detail.notice||'Le compte existe déjà. Il peut se connecter ou demander un nouveau mot de passe.'});
+    return;
+   }
+   setInviteFeedback({kind:'success',message:'Invitation acceptée par Supabase Auth. L’e-mail a été remis au service d’envoi; la réception finale dépend du fournisseur.'});
+   setInviteEmail('');
+   notify('Demande d’envoi d’invitation acceptée.');
+  }finally{setInviteBusy(false)}
+ };
  const grantAccess=async()=>{
   if(!studioClient||!user||inviteBusy)return;
   const targetBrand=manageableBrands.includes(inviteBrand)?inviteBrand:manageableBrands[0];
@@ -413,24 +455,14 @@ export default function Studio(){
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)){notify('Adresse e-mail invalide','warning');return}
   if(inviteRole==='owner'&&!access?.isSuperadmin){notify('Seul le super-administrateur peut nommer un propriétaire','warning');return}
   if(normalized===user.email?.trim().toLowerCase() && !access?.isSuperadmin){notify('Vous ne pouvez pas modifier votre propre accès','warning');return}
-  setInviteBusy(true);
+  setInviteBusy(true);setInviteFeedback(null);setManualInvite(null);
   const {error}=await studioClient.from('studio_brand_access').upsert({
     email:normalized,brand_id:targetBrand,role:inviteRole,granted_by:user.id
   },{onConflict:'email,brand_id'});
-  if(error){setInviteBusy(false);notify('Autorisation refusée : '+error.message,'warning');return}
-  const {data:invitation,error:deliveryError}=await studioClient.functions.invoke('invite-studio-member',{
-    body:{email:normalized,brand:targetBrand,role:inviteRole}
-  });
   setInviteBusy(false);
-  if(deliveryError||!invitation?.ok){
-    notify('Marque attribuée, mais e-mail non envoyé. Vérifiez les redirections et le quota SMTP Supabase.','warning');
-    await refreshGrantRows();return;
-  }
-  setInviteEmail('');
-  notify(invitation.status==='existing-account-reset'
-   ?'Accès attribué : e-mail de configuration du mot de passe envoyé.'
-   :'Invitation envoyée. Le destinataire pourra définir son profil et son mot de passe.');
+  if(error){notify('Autorisation refusée : '+error.message,'warning');return}
   await refreshGrantRows();
+  await requestInvitation({email:normalized,brand_id:targetBrand,role:inviteRole},'send');
  };
  const revokeGrant=async(grant:GrantRow)=>{
   if(!studioClient||!canManage(grant.brand_id))return;
@@ -614,8 +646,10 @@ export default function Studio(){
  onClick={e=>activateBlock(e,()=>openEditor(p))}
  onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}><td><button className="row-title" onClick={()=>openEditor(p)}>{p.title}</button><small>{clean(p.caption,95)}</small></td><td><div className="channel-row">{p.channels.slice(0,5).map((c,i)=><Channel key={i} name={c} small/>)}</div></td><td className="nowrap">{shortDate(p.date)} · {p.time}</td><td><span className="muted">{p.stage}</span></td><td><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge></td><td><div className="row-actions"><button title="Éditer" onClick={()=>openEditor(p)}><Pencil size={15}/></button><button title="Programmer dans le planning local" onClick={()=>updatePost(p.id,{status:'Programmé'})}><CalendarCheck size={15}/></button><button title="Marquer publié (aucune publication externe)" onClick={()=>updatePost(p.id,{status:'Publié'})}><Check size={15}/></button></div></td></tr>)}</tbody></table></div>{filtered.length===0&&<div className="empty">Aucun contenu pour ces filtres.</div>}</section>}
 
-    {view==='calendar'&&<section className="calendar-layout"><div className="panel calendar-main"><div className="calendar-head"><div className="calendar-title"><h2>{monthLabel(calendarMonth)}</h2><span>{allPosts.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length} contenus</span></div><div className="calendar-actions"><div className="segmented"><button className={calendarMode==='Mois'?'on':''} onClick={()=>setCalendarMode('Mois')}>Mois</button><button className={calendarMode==='Semaine'?'on':''} onClick={()=>setCalendarMode('Semaine')}>Semaine</button><button className={calendarMode==='Agenda'?'on':''} onClick={()=>setCalendarMode('Agenda')}>Agenda</button></div><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1))}><ChevronLeft size={17}/></IconButton><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1))}><ChevronRight size={17}/></IconButton></div></div>
-      {calendarMode==='Mois'?<div className="month-view"><div className="weekday-row">{dayNames.map(x=><div key={x}>{x}</div>)}</div><div className="month-grid">{monthGrid(calendarMonth).map((d,i)=>{const iso=isoDate(d);const posts=filtered.filter(x=>x.date===iso);return <button key={iso+'-'+i} type="button" onClick={()=>openCalendarDay(iso)} className={'day-cell '+(d.getMonth()!==calendarMonth.getMonth()?'out-month ':'')+(iso===selectedDate?'chosen-day ':'')}><span className="day-num">{d.getDate()}</span><div className="day-content">{posts.slice(0,3).map(p=><span title={p.title} key={p.id} className={'calendar-event '+statusClass(p.status)}>{clean(p.title,24)}</span>)}{posts.length>3&&<span className="more-events">+{posts.length-3} autres</span>}</div></button>})}</div></div>:calendarMode==='Semaine'?<div className="week-view"><div className="weekday-row">{weekDates.map(d=><button className={isoDate(d)===selectedDate?'selected-weekday':''} onClick={()=>openCalendarDay(isoDate(d))} key={isoDate(d)}>{dayNames[(d.getDay()+6)%7]} {d.getDate()}</button>)}</div><div className="week-columns">{weekDates.map(d=><div key={isoDate(d)} className="week-column">{filtered.filter(p=>p.date===isoDate(d)).map(p=>workChip(p))}</div>)}</div></div>:<div className="agenda-view" aria-label="Publications du mois">
+    {view==='calendar'&&<section className="calendar-layout"><div className="panel calendar-main"><div className="calendar-head"><div className="calendar-title"><h2>{monthLabel(calendarMonth)}</h2><span>{allPosts.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length} contenus</span></div><div className="calendar-actions"><button type="button" className={'btn btn-outline calendar-v3-toggle'+(showCloserPreviews?' calendar-v3-on':'')}
+ onClick={()=>setShowCloserPreviews(v=>!v)} aria-pressed={showCloserPreviews} title="Changer les titres affichés sans modifier les contenus enregistrés">
+ <Sparkles size={15}/>{showCloserPreviews?'Aperçu V3 actif':'Voir les accroches V3'}</button><div className="segmented"><button className={calendarMode==='Mois'?'on':''} onClick={()=>setCalendarMode('Mois')}>Mois</button><button className={calendarMode==='Semaine'?'on':''} onClick={()=>setCalendarMode('Semaine')}>Semaine</button><button className={calendarMode==='Agenda'?'on':''} onClick={()=>setCalendarMode('Agenda')}>Agenda</button></div><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1))}><ChevronLeft size={17}/></IconButton><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1))}><ChevronRight size={17}/></IconButton></div></div>
+      {calendarMode==='Mois'?<div className="month-view"><div className="weekday-row">{dayNames.map(x=><div key={x}>{x}</div>)}</div><div className="month-grid">{monthGrid(calendarMonth).map((d,i)=>{const iso=isoDate(d);const posts=filtered.filter(x=>x.date===iso);return <button key={iso+'-'+i} type="button" onClick={()=>openCalendarDay(iso)} className={'day-cell '+(d.getMonth()!==calendarMonth.getMonth()?'out-month ':'')+(iso===selectedDate?'chosen-day ':'')}><span className="day-num">{d.getDate()}</span><div className="day-content">{posts.slice(0,3).map(p=><span title={showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title+' (proposition non enregistrée)':p.title} key={p.id} className={'calendar-event '+statusClass(p.status)}>{clean(showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title:p.title,24)}</span>)}{posts.length>3&&<span className="more-events">+{posts.length-3} autres</span>}</div></button>})}</div></div>:calendarMode==='Semaine'?<div className="week-view"><div className="weekday-row">{weekDates.map(d=><button className={isoDate(d)===selectedDate?'selected-weekday':''} onClick={()=>openCalendarDay(isoDate(d))} key={isoDate(d)}>{dayNames[(d.getDay()+6)%7]} {d.getDate()}</button>)}</div><div className="week-columns">{weekDates.map(d=><div key={isoDate(d)} className="week-column">{filtered.filter(p=>p.date===isoDate(d)).map(p=>workChip(p))}</div>)}</div></div>:<div className="agenda-view" aria-label="Publications du mois">
   {filtered.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length===0?
    <div className="agenda-empty"><CalendarDays size={28}/><strong>Aucune publication ce mois-ci</strong><span>Changez de mois ou ajoutez un contenu au planning.</span></div>:
    Array.from(new Set(filtered.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).map(p=>p.date)))
@@ -624,12 +658,12 @@ export default function Studio(){
      {filtered.filter(p=>p.date===day).map(p=><button type="button" key={p.id} className="agenda-item"
        onClick={()=>openEditor(p)} aria-label={'Modifier '+p.title}>
        <span className={'agenda-time '+statusClass(p.status)}>{p.time||'—'}</span>
-       <span className="agenda-copy"><strong>{p.title}</strong><small>{p.channels.slice(0,2).join(' · ')||p.type}</small></span>
+       <span className="agenda-copy"><strong>{showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title:p.title}</strong><small>{p.channels.slice(0,2).join(' · ')||p.type}{editorialAlternatives[p.id]?(showCloserPreviews?' · APERÇU V3 non sauvegardé':' · Accroche V3 disponible'):''}</small></span>
        <ChevronRight size={19}/></button>)}
     </section>)
   }
  </div>}
-     </div><aside id="studio-calendar-day-details" className="panel day-sidebar"><div className="panel-header"><div><h2>{longDate(selectedDate)}</h2><p>Publications du jour</p></div><Badge tone="blue">{selectedDayPosts.length}</Badge></div>{selectedDayPosts.length?selectedDayPosts.map(p=><PostCard key={p.id} p={p} compact/>):<div className="empty-day"><CalendarDays size={29}/><p>Aucun contenu à cette date.</p></div>}<button className="btn btn-outline full-btn" onClick={()=>{addPost();setEditorDraft({date:selectedDate})}}><Plus size={16}/> Ajouter un contenu</button><div className="tip-note"><Info size={16}/> Ces dates pilotent le planning interne ; aucune publication automatique n’est déclenchée.</div></aside></section>}
+     </div><aside id="studio-calendar-day-details" className="panel day-sidebar"><div className="panel-header"><div><h2>{longDate(selectedDate)}</h2><p>Publications du jour {showCloserPreviews?'· accroches V3 en aperçu':''}</p></div><Badge tone="blue">{selectedDayPosts.length}</Badge></div>{selectedDayPosts.length?selectedDayPosts.map(p=><PostCard key={p.id} p={showCloserPreviews&&editorialAlternatives[p.id]?{...p,title:editorialAlternatives[p.id].title,caption:editorialAlternatives[p.id].caption,cta:editorialAlternatives[p.id].cta}:p} compact/>):<div className="empty-day"><CalendarDays size={29}/><p>Aucun contenu à cette date.</p></div>}<button className="btn btn-outline full-btn" onClick={()=>{addPost();setEditorDraft({date:selectedDate})}}><Plus size={16}/> Ajouter un contenu</button><div className="tip-note"><Info size={16}/> Ces dates pilotent le planning interne ; aucune publication automatique n’est déclenchée.</div></aside></section>}
 
     {view==='kanban'&&<><div className="panel kanban-help"><div className="panel-header"><div><h2>Production de contenu</h2><p>Glissez une carte vers une autre colonne ou utilisez son sélecteur de statut.</p></div><Badge tone="purple">{stats.posts} cartes</Badge></div>{ToolbarFilters()}</div><section className="kanban-board">{statuses.map(s=>{const cards=filtered.filter(p=>normalizeStatus(p.status)===s);return <div className="kanban-column" key={s} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(kanbanFilter)updatePost(kanbanFilter,{status:s});setKanbanFilter('')}}><header><span className={'kanban-bubble '+statusClass(s)}/><strong>{s}</strong><em>{cards.length}</em></header><div className="kanban-cards">{cards.map(p=><article draggable onDragStart={()=>setKanbanFilter(p.id)} onDragEnd={()=>setKanbanFilter('')}
  role="link" tabIndex={0} aria-label={'Ouvrir le contenu '+p.title}
@@ -639,7 +673,32 @@ export default function Studio(){
 
     {view==='media'&&<><div className="panel media-toolbar"><div className="panel-header"><div><h2>Bibliothèque des supports</h2><p>Images de campagne et créations disponibles dans votre espace sécurisé.</p></div><div className="toolbar-buttons"><input ref={fileInput} type="file" accept="image/*" style={{display:'none'}} onChange={e=>mediaUpload(e.target.files?.[0])}/><button className="btn btn-primary" onClick={()=>fileInput.current?.click()}><Plus size={16}/> Ajouter une image</button></div></div><div className="pill-tabs">{['Tous','Image','Vidéo','Document'].map(x=><button onClick={()=>setMediaFilter(x)} className={mediaFilter===x?'active':''} key={x}>{x}</button>)}</div></div><div className="media-layout"><div className="media-grid">{ws.media.filter(x=>mediaFilter==='Tous'||x.kind===mediaFilter).map(m=><button key={m.id} className={'asset-card '+(selectedMediaId===m.id?'asset-selected':'')} onClick={()=>setSelectedMediaId(m.id)}><div className="asset-image">{m.kind==='Image'?<img src={m.src} alt={m.name}/>:<FileVideo size={36}/>}</div><div className="asset-caption"><strong>{m.name}</strong><span>{m.format} <MoreHorizontal size={15}/></span></div></button>)}</div><aside id="mobile-media-details" className={"panel asset-details"+(selectedMedia?" asset-details-open":"")}><div className="panel-header"><h2>Détails du média</h2><IconButton onClick={()=>setSelectedMediaId('')}><X size={16}/></IconButton></div>{selectedMedia?<><div className="asset-large"><img src={selectedMedia.src} alt={selectedMedia.name}/></div><h3>{selectedMedia.name}</h3><p className="muted">{selectedMedia.note||'Ressource de création'}</p><div className="detail-line"><span>Type</span><strong>{selectedMedia.kind}</strong></div><div className="detail-line"><span>Format</span><strong>{selectedMedia.format}</strong></div><div className="detail-line"><span>Date</span><strong>{selectedMedia.created}</strong></div><div className="detail-line"><span>Marque</span><strong>{info.label}</strong></div><a className="btn btn-primary full-btn" href={selectedMedia.src} download={selectedMedia.name}><Download size={15}/> Télécharger</a></>:<div className="empty-day"><Images size={30}/><p>Sélectionnez un média pour afficher ses informations.</p></div>}</aside></div></>}
 
-    {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons"><button className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button><button className="btn btn-primary" disabled={!selectedPost} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><span>{clean(p.title,55)}</span><small>{shortDate(p.date)} · {labelForType(p.type)}</small></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-tabs"><button className={editTab==='contenu'?'active':''} onClick={()=>setEditTab('contenu')}>Contenu maître</button><button className={editTab==='declinaisons'?'active':''} onClick={()=>setEditTab('declinaisons')}>Déclinaisons ({currentVariants.length})</button></div>{editTab==='contenu'?<><label className="field">Titre du contenu<input value={editorDraft.title??selectedPost.title} onChange={e=>setEditorDraft(d=>({...d,title:e.target.value}))}/></label><div className="two-fields"><label className="field">Date<input type="date" value={editorDraft.date??selectedPost.date} onChange={e=>setEditorDraft(d=>({...d,date:e.target.value}))}/></label><label className="field">Heure<input type="time" value={editorDraft.time??selectedPost.time} onChange={e=>setEditorDraft(d=>({...d,time:e.target.value}))}/></label></div><label className="field">Texte principal<textarea rows={12} value={editorDraft.caption??selectedPost.caption} onChange={e=>setEditorDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">Appel à l’action<input value={editorDraft.cta??selectedPost.cta} onChange={e=>setEditorDraft(d=>({...d,cta:e.target.value}))}/></label><label className="field">Hashtags<textarea rows={2} value={editorDraft.hashtags??selectedPost.hashtags} onChange={e=>setEditorDraft(d=>({...d,hashtags:e.target.value}))}/></label><div className="two-fields"><label className="field">Étape<select value={editorDraft.status??normalizeStatus(selectedPost.status)} onChange={e=>setEditorDraft(d=>({...d,status:e.target.value}))}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label className="field">Canaux<input value={(editorDraft.channels??selectedPost.channels).join(', ')} onChange={e=>setEditorDraft(d=>({...d,channels:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)}))}/></label></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((editorDraft.caption??selectedPost.caption)+'\n'+(editorDraft.hashtags??selectedPost.hashtags))}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>{updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}>Enregistrer les modifications <Check size={16}/></button></div></>:<><div className="variant-tabs">{currentVariants.length===0?<p>Aucune déclinaison pour ce contenu.</p>:currentVariants.map(v=><button className={(chosenVariant?.id===v.id)?'active':''} onClick={()=>{setVariantId(v.id);setVariantDraft({})}} key={v.id}><Channel name={v.channel} small/>{v.channel}</button>)}</div>{chosenVariant&&<><label className="field">Accroche<input value={variantDraft.hook??chosenVariant.hook} onChange={e=>setVariantDraft(d=>({...d,hook:e.target.value}))}/></label><label className="field">Texte adapté à {chosenVariant.channel}<textarea rows={12} value={variantDraft.caption??chosenVariant.caption} onChange={e=>setVariantDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">CTA<input value={variantDraft.cta??chosenVariant.cta} onChange={e=>setVariantDraft(d=>({...d,cta:e.target.value}))}/></label><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((variantDraft.caption??chosenVariant.caption)+'\n'+chosenVariant.hashtags)}><Copy size={16}/> Copier</button><button className="btn btn-primary" onClick={()=>{updateVariant(chosenVariant.id,variantDraft);setVariantDraft({})}}>Enregistrer la déclinaison</button></div></>}</>}</>:<div className="empty-day"><PenSquare size={32}/><p>Choisissez un contenu sur la gauche pour l’éditer.</p></div>}</section><aside className="panel editor-side"><h3>Assistant de production</h3><div className="editor-assist-intro"><Sparkles size={21}/><strong>Checklist éditoriale</strong><p>Chaque publication doit être utile et fidèle au modèle réel.</p></div>{['Accroche compréhensible en 3 secondes','Une seule idée principale','Aucun revenu garanti ni preuve inventée','CTA simple vers WhatsApp','Adaptation selon le réseau','Vérification des faits avant publication'].map(x=><label className="check-line" key={x}><input type="checkbox"/> {x}</label>)}<div className="editor-side-note"><Info size={16}/> Les suggestions IA automatiques et la publication directe nécessitent des services connectés. Elles ne sont pas actives dans cette V1.</div></aside></div></div>}
+    {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons"><button className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button><button className="btn btn-primary" disabled={!selectedPost} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><span>{clean(p.title,55)}</span><small>{shortDate(p.date)} · {labelForType(p.type)}</small></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-tabs"><button className={editTab==='contenu'?'active':''} onClick={()=>setEditTab('contenu')}>Contenu maître</button><button className={editTab==='declinaisons'?'active':''} onClick={()=>setEditTab('declinaisons')}>Déclinaisons ({currentVariants.length})</button></div>{editTab==='contenu'?<><label className="field">Titre du contenu<input value={editorDraft.title??selectedPost.title} onChange={e=>setEditorDraft(d=>({...d,title:e.target.value}))}/></label><div className="two-fields"><label className="field">Date<input type="date" value={editorDraft.date??selectedPost.date} onChange={e=>setEditorDraft(d=>({...d,date:e.target.value}))}/></label><label className="field">Heure<input type="time" value={editorDraft.time??selectedPost.time} onChange={e=>setEditorDraft(d=>({...d,time:e.target.value}))}/></label></div><label className="field">Texte principal<textarea rows={12} value={editorDraft.caption??selectedPost.caption} onChange={e=>setEditorDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">Appel à l’action<input value={editorDraft.cta??selectedPost.cta} onChange={e=>setEditorDraft(d=>({...d,cta:e.target.value}))}/></label><label className="field">Hashtags<textarea rows={2} value={editorDraft.hashtags??selectedPost.hashtags} onChange={e=>setEditorDraft(d=>({...d,hashtags:e.target.value}))}/></label><div className="two-fields"><label className="field">Étape<select value={editorDraft.status??normalizeStatus(selectedPost.status)} onChange={e=>setEditorDraft(d=>({...d,status:e.target.value}))}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label className="field">Canaux<input value={(editorDraft.channels??selectedPost.channels).join(', ')} onChange={e=>setEditorDraft(d=>({...d,channels:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)}))}/></label></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((editorDraft.caption??selectedPost.caption)+'\n'+(editorDraft.hashtags??selectedPost.hashtags))}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>{updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}>Enregistrer les modifications <Check size={16}/></button></div></>:<><div className="variant-tabs">{currentVariants.length===0?<p>Aucune déclinaison pour ce contenu.</p>:currentVariants.map(v=><button className={(chosenVariant?.id===v.id)?'active':''} onClick={()=>{setVariantId(v.id);setVariantDraft({})}} key={v.id}><Channel name={v.channel} small/>{v.channel}</button>)}</div>{chosenVariant&&<><label className="field">Accroche<input value={variantDraft.hook??chosenVariant.hook} onChange={e=>setVariantDraft(d=>({...d,hook:e.target.value}))}/></label><label className="field">Texte adapté à {chosenVariant.channel}<textarea rows={12} value={variantDraft.caption??chosenVariant.caption} onChange={e=>setVariantDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">CTA<input value={variantDraft.cta??chosenVariant.cta} onChange={e=>setVariantDraft(d=>({...d,cta:e.target.value}))}/></label><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((variantDraft.caption??chosenVariant.caption)+'\n'+chosenVariant.hashtags)}><Copy size={16}/> Copier</button><button className="btn btn-primary" onClick={()=>{updateVariant(chosenVariant.id,variantDraft);setVariantDraft({})}}>Enregistrer la déclinaison</button></div></>}</>}</>:<div className="empty-day"><PenSquare size={32}/><p>Choisissez un contenu sur la gauche pour l’éditer.</p></div>}</section><aside className="panel editor-side"><h3>Assistant de production</h3>
+<div className="editor-assist-intro"><Sparkles size={21}/><strong>Checklist éditoriale</strong><p>Chaque publication doit être utile et fidèle au modèle réel.</p></div>{['Accroche compréhensible en 3 secondes','Une seule idée principale','Aucun revenu garanti ni preuve inventée','CTA simple vers WhatsApp','Adaptation selon le réseau','Vérification des faits avant publication'].map(x=><label className="check-line" key={x}><input type="checkbox"/> {x}</label>)}
+ {selectedPost&&selectedExample&&<section className="editor-ready-proposal" aria-label="Exemple complet pour ce contenu">
+  <div className="editor-ready-heading"><span className="editor-ready-eyebrow"><Sparkles size={16}/> NOUVELLE PROPOSITION</span><h4>Exemple prêt à adapter</h4>
+  <p>Une proposition complète pour ce contenu : accroche, histoire, appel à l'action et futur visuel.</p></div>
+  <h5>{selectedExample.title}</h5>
+  <div className="editor-ready-copy">{selectedExample.caption}</div>
+  <div className="editor-ready-cta"><strong>Appel à l'action</strong><p>{selectedExample.cta}</p></div>
+  <p className="editor-ready-hashtags">{selectedExample.hashtags}</p>
+  <details className="editor-ready-brief"><summary><Images size={16}/> Brief du visuel à produire <ChevronDown size={15}/></summary>
+   <div><b>{selectedExample.format}</b><p>{selectedExample.visualBrief}</p></div>
+  </details>
+  <details className="editor-ready-brief"><summary><ClipboardCheck size={16}/> Notes de réalisation <ChevronDown size={15}/></summary>
+   <p>{selectedExample.productionAdvice}</p>
+   {selectedPost.production&&<p><b>Consigne existante :</b> {selectedPost.production}</p>}
+  </details>
+  <small className="editor-ready-note">{selectedExample.statusNote} Aucune image ni preuve financière n'est inventée comme réelle.</small>
+  <div className="editor-ready-actions">
+   <button className="btn btn-outline" type="button" onClick={()=>copyText([selectedExample.title,selectedExample.caption,selectedExample.cta,selectedExample.hashtags].join('\n\n'))}><Copy size={15}/> Copier l'exemple</button>
+   <button className="btn btn-primary" type="button" disabled={!canEdit(brand)} onClick={()=>{
+    setEditorDraft(d=>({...d,title:selectedExample.title,caption:selectedExample.caption,cta:selectedExample.cta,hashtags:selectedExample.hashtags}));
+    setEditTab('contenu');
+    notify('Proposition préparée dans l’éditeur. Enregistrez pour la conserver.');
+   }}><Pencil size={15}/> Utiliser dans l'éditeur</button>
+  </div>
+ </section>}<div className="editor-side-note"><Info size={16}/> Les exemples sont préparés à partir des sujets et références éditoriales déjà disponibles. Ils ne sont pas publiés automatiquement. Les visuels proposés restent à produire.</div></aside></div></div>}
 
     {view==='video'&&<div className="video-layout"><section className="panel script-list"><div className="panel-header"><div><h2>Scénarios prêts à tourner</h2><p>{raw.scripts.length} scripts développés pour {info.person.split(' ')[0]} · 1:40–2:00</p></div></div><div className="script-cards">{raw.scripts.map((s:Script)=><button className={'script-card '+(selectedScript===s.id?'selected':'')} key={s.id} onClick={()=>{
   setSelectedScript(s.id);
@@ -648,11 +707,11 @@ export default function Studio(){
   }
  }}><span className="script-number">{s.id.slice(-3)}</span><span><strong>{clean(s.hook,80)}</strong><small>{shortDate(s.date)} · {s.duration||'Vidéo courte'} · {s.angle||'Face caméra'}</small></span><ChevronRight size={16}/></button>)}</div></section><section id="studio-script-detail" className="panel script-detail">{(()=>{const s=raw.scripts.find((x:Script)=>x.id===selectedScript)||raw.scripts[0];if(!s)return null;return <><div className="script-hero"><Badge tone="blue">Scénario · {s.week}</Badge><Badge tone="purple">{s.duration}</Badge><h2>{s.hook}</h2><p>{s.angle||s.role}</p></div><div className="script-toolbox"><div className="script-toolbox-title"><span><Video size={18}/> Texte intégral à dire</span><button className="btn btn-primary" onClick={()=>copyText(s.spoken||[s.hook,s.tension,s.story,s.realism,s.cta].join('\n\n'))}><Copy size={15}/> Copier toute la narration</button></div><p className="script-voiceover">{s.spoken||[s.hook,s.tension,s.story,s.realism,s.cta].join('\n\n')}</p></div><div className="panel-subhead"><h3>Storyboard · {s.scenes?.length||'6'} scènes</h3><p>Chaque plan précise ce qui est dit, filmé et affiché à l’écran.</p></div><div className="scenes-stack">{s.scenes?.map((scene,index)=><article className="scene-card" key={index}><div className="scene-index"><span>{String(index+1).padStart(2,'0')}</span><strong>{scene.time}</strong></div><div><h4>{scene.scene}</h4><div className="scene-speech">« {scene.spoken} »</div><div className="scene-columns"><span><b>ÉCRAN</b>{scene.onScreen}</span><span><b>PLAN / DÉTAIL</b>{scene.shot}</span></div></div><button className="script-copy" onClick={()=>copyText(scene.spoken)} title="Copier les paroles"><Copy size={16}/></button></article>)}</div><div className="script-two-col"><div className="script-panel"><h3>Variantes d’accroche</h3>{(s.hookAlternatives||[]).map((h,i)=><button className="hook-alt" key={i} onClick={()=>copyText(h)}><span>{i+1}</span><strong>{h}</strong><Copy size={14}/></button>)}</div><div className="script-panel"><h3>Versions par réseau</h3>{Object.entries(s.platformCuts||{}).map(([channel,note])=><div className="script-cut" key={channel}><strong>{channel}</strong><p>{note}</p></div>)}</div></div><div className="script-panel"><h3>Production, son & vérifications</h3>{[['Direction',s.direction],['Son / montage',s.sound],['Matériel & couverture',s.asset],['Détails à confirmer',s.proofNeeded||s.compliance]].map(([label,txt])=><div className="detail-line" key={label}><span>{label}</span><strong>{txt}</strong></div>)}</div><div className="script-panel"><h3>Références vérifiables</h3><div className="source-chips">{(s.referenceIds||s.sources.split(',').map(x=>x.trim())).map((id,i)=>{const src=raw.sources.find(x=>x.id===id);return src?.url?.startsWith('http')?<a target="_blank" rel="noopener noreferrer" href={src.url} key={i}>{src.name}<ExternalLink size={12}/></a>:<span key={i}>{src?.name||id}</span>})}</div></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText(s.postCaption||s.story)}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>copyText(s.spoken||s.timeline)}><Copy size={16}/> Copier le script complet</button></div></>})()}</section></div>}
 
-    {view==='campaigns'&&<><div className="campaign-intro panel"><div><Badge tone="purple">CAMPAGNE ÉDITORIALE · 8 SEMAINES</Badge><h2>{raw.config.tagline}</h2><p>Un parcours de contenus réguliers, de la découverte à la première présentation collective. Le tableau correspond au planning éditorial : aucune campagne publicitaire Meta n'est modifiée ici.</p></div><div className="campaign-stats"><span><b>{stats.posts}</b> publications</span><span><b>{stats.variants}</b> déclinaisons</span><button type="button" className="campaign-whatsapp-link" onClick={()=>setView('whatsapp')}><SiWhatsapp size={16} style={{color:'#25d366'}}/> <b>{raw.events.length}</b> séquences WhatsApp <ArrowUpRight size={14}/></button></div></div><div className="campaign-weeks">{countsByWeek.map(w=><div key={w.week} className="panel campaign-week navigable-block" role="link" tabIndex={0}
+    {view==='campaigns'&&<><div className="campaign-intro panel"><div><Badge tone="purple">CAMPAGNE ÉDITORIALE · 8 SEMAINES</Badge><h2>{campaignDreams[brand].title}</h2><p>{campaignDreams[brand].subtitle} Un parcours de contenus réguliers, de la découverte à la première présentation collective. Le tableau correspond au planning éditorial : aucune campagne publicitaire Meta n'est modifiée ici.</p></div><div className="campaign-stats"><span><b>{stats.posts}</b> publications</span><span><b>{stats.variants}</b> déclinaisons</span><button type="button" className="campaign-whatsapp-link" onClick={()=>setView('whatsapp')}><SiWhatsapp size={16} style={{color:'#25d366'}}/> <b>{raw.events.length}</b> séquences WhatsApp <ArrowUpRight size={14}/></button></div></div><div className="campaign-weeks">{countsByWeek.map(w=><div key={w.week} className="panel campaign-week navigable-block" role="link" tabIndex={0}
  aria-label={'Voir les publications de la semaine '+w.week}
  onClick={e=>activateBlock(e,()=>openWeek(w.week))}
  onKeyDown={e=>activateBlockKey(e,()=>openWeek(w.week))}>
- <div className="campaign-week-head"><Badge tone="blue">{w.week}</Badge><strong>{w.planned} contenus</strong></div><h3>{w.week==='S1'?'Faire connaissance':w.week==='S2'?'Faire émerger les questions':w.week==='S3'?'Éduquer sans promesses':w.week==='S4'?'Explorer les objections':w.week==='S5'?'Présenter les étapes':w.week==='S6'?'Bâtir la confiance':w.week==='S7'?'Inviter à découvrir':'Consolider la communauté'}</h3><div className="campaign-week-items">{allPosts.filter(p=>p.week===w.week).sort(byDate).slice(0,5).map(p=><button onClick={()=>openEditor(p)} key={p.id}><span className="tiny-dot"/>{clean(p.title,50)}<ArrowUpRight size={14}/></button>)}</div><button className="text-link" onClick={()=>openWeek(w.week)}>Ouvrir les contenus <ArrowRight size={14}/></button></div>)}</div></>}
+ <div className="campaign-week-head"><Badge tone="blue">{w.week}</Badge><strong>{w.planned} contenus</strong></div><h3>{campaignWeekThemes[brand][Number(w.week.slice(1))-1]||'Explorer les possibilités'}</h3><div className="campaign-week-items">{allPosts.filter(p=>p.week===w.week).sort(byDate).slice(0,5).map(p=><button onClick={()=>openEditor(p)} key={p.id}><span className="tiny-dot"/>{clean(p.title,50)}<ArrowUpRight size={14}/></button>)}</div><button className="text-link" onClick={()=>openWeek(w.week)}>Ouvrir les contenus <ArrowRight size={14}/></button></div>)}</div></>}
 
     {view==='whatsapp'&&<>
      <TeloPraPanel key={brand} brand={brand} canManage={canManage(brand)} canEdit={canEdit(brand)}/>
@@ -668,17 +727,36 @@ export default function Studio(){
         <span>{id}</span><Icon size={28}/><strong>{title}</strong><ArrowRight className="funnel-arrow" size={15}/>
       </button>)}
      </div>
-     <div className="panel" id="studio-whatsapp-sequences">
+
+     <section id="studio-whatsapp-sequences" className="panel closer-panel" aria-label="Bibliothèque commerciale WhatsApp">
+      <div className="panel-header"><div><h2>Closer 2.0 · Réponses rapides</h2>
+       <p>{closerStageNames[selectedWhatsappStage]} · {info.label} · Chaque texte est distinct et s'adapte à un signal précis.</p>
+      </div><Badge tone="mint">{closingPlaybooks[brand].filter(m=>m.step===selectedWhatsappStage).length} situations</Badge></div>
+      <div className="closer-guidance"><Sparkles size={17}/>
+       <p>Créer l'envie de découvrir un autre avenir, puis aider à évaluer l'activité sans pression. Envoyer manuellement après avoir compris le besoin; ne pas masquer les coûts, le travail ni les risques.</p>
+      </div>
+      <div className="closer-grid">
+       {closingPlaybooks[brand].filter(m=>m.step===selectedWhatsappStage).map(m=><article className="closer-card" key={m.id}>
+        <div className="closer-card-heading"><span className="closer-keyword">{m.keyword}</span><h3>{m.title}</h3></div>
+        <p className="closer-trigger"><Target size={14}/> {m.trigger}</p>
+        <p className="closer-copy">{m.message}</p>
+        <div className="closer-card-footer"><span><ArrowRight size={15}/>{m.nextAction}</span>
+         <button className="btn btn-outline" type="button" onClick={()=>copyText(m.message)}><Copy size={15}/> Copier</button>
+        </div>
+       </article>)}
+      </div>
+     </section>
+     {selectedWhatsappStage==='2'&&<div className="panel" id="studio-whatsapp-events">
       <div className="panel-header">
-       <div><h2>Séquences d'accueil et de présentation</h2><p>{selectedWhatsappStage==='1'?'Messages d’accueil pour les conversations privées':selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
+       <div><h2>Messages spécifiques aux présentations</h2><p>{selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
        {raw.config.whatsapp?.startsWith('https://')?
         <a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-whatsapp"><SiWhatsapp size={19}/> Ouvrir WhatsApp <ExternalLink size={13}/></a>:
         <button type="button" className="btn btn-whatsapp" onClick={()=>notify('Aucun lien WhatsApp n’est renseigné pour cette marque','warning')}><SiWhatsapp size={19}/> Lien WhatsApp manquant</button>}
       </div>
       <div className="event-grid">
        {raw.events.map((evt:GroupEvent)=>{
-        const msg=selectedWhatsappStage==='1'?(evt.greeting||evt.invitation):selectedWhatsappStage==='2'?evt.invitation:selectedWhatsappStage==='3'?evt.reminder:evt.followUp;
-        const label=selectedWhatsappStage==='1'?'MESSAGE D’ACCUEIL':selectedWhatsappStage==='2'?'MESSAGE D’INVITATION':selectedWhatsappStage==='3'?'RAPPEL DE PRÉSENTATION':'MESSAGE DE SUIVI';
+        const msg=evt.invitation;
+        const label='INVITATION SPÉCIFIQUE À CETTE PRÉSENTATION';
         const expanded=selectedEventId===evt.id;
         return <article className={'event-card navigable-block '+(expanded?'event-card-active':'')} key={evt.id}
           role="button" tabIndex={0} aria-expanded={expanded} aria-label={'Afficher la séquence '+evt.theme}
@@ -689,14 +767,12 @@ export default function Studio(){
           <div className="event-message"><span>{label}</span><p>{expanded?msg:clean(msg,280)}</p></div>
           {expanded&&<div className="event-expanded"><strong>Suite du parcours</strong><p>{evt.flow||evt.condition||'Adapter le message et assurer le suivi personnalisé.'}</p><small>Copiez les messages avec les commandes ci-dessous.</small></div>}
           <div className="event-controls">
-           <button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Invitation</button>
-           <button onClick={()=>copyText(evt.reminder)}><Clock3 size={15}/> Rappel</button>
-           <button onClick={()=>copyText(evt.followUp)}><Send size={15}/> Suivi</button>
+           <button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Copier cette invitation</button>
           </div>
          </article>;
        })}
       </div>
-     </div>
+     </div>}
      <div className="panel whatsapp-disclaimer"><Info size={18}/><p>Les messages sont préparés pour un envoi manuel. Les tarifs, témoignages et conditions commerciales doivent être vérifiés avant communication.</p></div>
     </>}
 
@@ -736,10 +812,27 @@ export default function Studio(){
  <option value="editor">Éditeur</option><option value="viewer">Lecture seule</option>{access?.isSuperadmin&&<option value="owner">Propriétaire</option>}
  </select>
  <button type="button" className="btn btn-primary" disabled={inviteBusy} onClick={()=>void grantAccess()}>{inviteBusy?'Enregistrement…':'Attribuer et inviter'}</button>
+  <div className="studio-invite-help">Les droits peuvent être attribués même si l’e-mail est refusé. Pour un accès existant, utilisez « Renvoyer ».
+   <a href="https://supabase.com/docs/guides/auth/auth-smtp" target="_blank" rel="noopener noreferrer">Configuration SMTP</a>.
+  </div>
+  {inviteFeedback&&<div className={'studio-invite-feedback studio-invite-'+inviteFeedback.kind} role={inviteFeedback.kind==='error'?'alert':'status'}>
+   <strong>{inviteFeedback.code==='EMAIL_RATE_LIMIT'?'Quota e-mail atteint':inviteFeedback.code==='SMTP_REQUIRED'?'SMTP requis':inviteFeedback.kind==='success'?'Opération enregistrée':'Invitation à vérifier'}</strong>
+   <p>{inviteFeedback.message}</p>
+  </div>}
+  {manualInvite&&<div className="studio-invite-feedback studio-invite-success">
+   <strong>Lien d’activation pour {manualInvite.email}</strong>
+   <p>Ce lien donne accès au compte : transmettez-le uniquement en privé au destinataire. Il expire selon la durée configurée dans Supabase Auth. Aucun e-mail n’a été envoyé.</p>
+   <button type="button" className="btn btn-outline" onClick={()=>copyText(manualInvite.link)}><Copy size={15}/> Copier le lien privé</button>
+   <button type="button" className="btn btn-outline" onClick={()=>setManualInvite(null)}>Masquer le lien</button>
+  </div>}
  </div>
  <div style={{marginTop:15,display:'grid',gap:8}}>
  {grantRows.map(g=><div key={g.brand_id+'-'+g.email} style={{display:'flex',alignItems:'center',gap:9,justifyContent:'space-between',padding:'9px 12px',background:'#f5f8ff',borderRadius:10,flexWrap:'wrap'}}>
  <span><strong>{g.email}</strong><br/><small>{BRAND_INFO[g.brand_id].label} · {g.role==='owner'?'Propriétaire':g.role==='viewer'?'Lecture seule':'Éditeur'}</small></span>
+  <div className="studio-grant-actions">
+   <button type="button" className="btn btn-outline" disabled={inviteBusy} onClick={()=>void requestInvitation(g)}><Mail size={14}/> Renvoyer</button>
+   <button type="button" className="btn btn-outline" disabled={inviteBusy} onClick={()=>void requestInvitation(g,'manual_link')}><Link2 size={14}/> Lien privé</button>
+  </div>
  {(g.role!=='owner'||access?.isSuperadmin)&&<button type="button" className="btn btn-outline" onClick={()=>void revokeGrant(g)}>Retirer</button>}
  </div>)}
  {!grantRows.length&&<p>Aucun accès individuel ajouté pour les marques administrées.</p>}

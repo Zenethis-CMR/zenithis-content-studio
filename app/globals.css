@@ -113,3 +113,73 @@
 .source-row.navigable-block{padding-left:10px;padding-right:10px;margin-inline:-10px;border-radius:10px}
 .source-row.navigable-block:hover{background:#f5f9ff}
 .source-row.navigable-block:focus-visible{outline-offset:0}
+
+
+/* Closer 2.0: manual, stage-specific WhatsApp scripts */
+.closer-panel{margin-bottom:20px}
+.closer-guidance{display:flex;align-items:flex-start;gap:10px;padding:12px 15px;border:1px solid var(--border,#e6e9ef);border-radius:12px;margin:0 0 18px;background:var(--bg-soft,#fafbfc)}
+.closer-guidance svg{flex-shrink:0;margin-top:3px;color:#b37c51}
+.closer-guidance p{margin:0;font-size:13px;line-height:1.6;color:var(--text-muted,#667085)}
+.closer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.closer-card{display:flex;flex-direction:column;min-width:0;padding:19px;border:1px solid var(--border,#e8eaf0);border-radius:15px;background:var(--surface,#fff)}
+.closer-card-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.closer-card-heading h3{font-size:15px;line-height:1.4;letter-spacing:-.01em;margin:0}
+.closer-keyword{padding:4px 8px;font-size:10px;letter-spacing:.055em;font-weight:800;color:#207444;border:1px solid #ceedd8;border-radius:7px;background:#f0faf4}
+.closer-trigger{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.4;color:var(--text-muted,#667085);margin:0 0 14px}
+.closer-trigger svg{flex-shrink:0}
+.closer-copy{white-space:pre-line;flex:1;line-height:1.8;font-size:14px;margin:0;color:var(--text,#262b34)}
+.closer-card-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--border,#e8eaf0);margin-top:18px;padding-top:14px}
+.closer-card-footer>span{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.45;color:var(--text-muted,#667085)}
+.closer-card-footer>span svg{flex-shrink:0;margin-top:1px}
+.closer-card-footer button{flex-shrink:0}
+@media(max-width:990px){.closer-grid{grid-template-columns:1fr}}
+@media(max-width:550px){.closer-card{padding:15px}.closer-card-footer{flex-direction:column;align-items:stretch}.closer-card-footer button{justify-content:center}}
+
+
+/* Non-destructive Closer V2 proposal beside the existing content editor */
+.editor-v2-proposal{display:flex;flex-direction:column;gap:11px;padding:16px;margin:14px 0;border:1px solid #dfd2ba;border-radius:14px;background:linear-gradient(160deg,#fffaf0 0%,#fff 80%)}
+.editor-v2-eyebrow{display:flex;align-items:center;gap:7px;color:#926629;font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+.editor-v2-proposal h4{font-size:15px;line-height:1.4;margin:0}
+.editor-v2-proposal p{font-size:13px;white-space:pre-line;line-height:1.7;margin:0;max-height:270px;overflow:auto}
+.editor-v2-proposal small{font-size:11px;line-height:1.5;color:#6b7280}
+.editor-v2-proposal .btn{width:100%;justify-content:center}
+
+
+/* Invitation/SMTP diagnostics */
+.studio-invite-help{grid-column:1/-1;line-height:1.55;color:#64748b;font-size:12px;margin:1px 0}
+.studio-invite-help a{display:inline-block;margin-left:5px;text-decoration:underline}
+.studio-invite-feedback{grid-column:1/-1;display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:12px 15px;border:1px solid #c7d7eb;border-radius:11px;background:#f6f9ff;font-size:13px;line-height:1.55;margin-top:8px}
+.studio-invite-feedback p{margin:0}
+.studio-invite-feedback strong{font-size:13px}
+.studio-invite-error{border-color:#f4b8b2;background:#fff4f2}
+.studio-invite-success{border-color:#b7dccd;background:#f3fcf8}
+.studio-invite-info{border-color:#b9ccf4;background:#f1f6ff}
+.studio-grant-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}
+.studio-grant-actions .btn{font-size:12px;padding:7px 9px}
+@media(max-width:650px){.studio-grant-actions{width:100%;margin-left:0}.studio-grant-actions .btn{flex:1;justify-content:center}}
+
+
+/* Complete per-post sample: immediately after the production checklist */
+.editor-ready-proposal{display:flex;flex-direction:column;gap:12px;margin-top:20px;padding:14px;border:1px solid #bcd2fb;border-radius:14px;background:linear-gradient(155deg,#f5f9ff 0%,#fff 64%);box-shadow:0 6px 18px rgba(32,83,172,.06);min-width:0}
+.editor-ready-heading{display:flex;flex-direction:column;gap:5px}
+.editor-ready-heading h4{margin:0;font-size:15px;line-height:1.35;color:#133369}
+.editor-ready-heading p{margin:0;font-size:12px;line-height:1.5;color:#52678e}
+.editor-ready-eyebrow{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:800;color:#3269db;letter-spacing:.07em}
+.editor-ready-proposal h5{font-size:14px;line-height:1.4;letter-spacing:-.015em;margin:4px 0 0;color:#152c54}
+.editor-ready-copy{font-size:12.5px;line-height:1.75;white-space:pre-wrap;color:#314460;border-top:1px solid #dfebfb;padding-top:12px;overflow-wrap:anywhere}
+.editor-ready-cta{padding:11px;border-radius:9px;background:#eaf2ff;border:1px solid #cee0ff}
+.editor-ready-cta strong{display:block;font-size:10px;color:#2355aa;text-transform:uppercase;letter-spacing:.055em}
+.editor-ready-cta p{margin:5px 0 0;line-height:1.6;font-size:12px;color:#142c57}
+.editor-ready-hashtags{overflow-wrap:anywhere;color:#3565b0;font-size:11px;line-height:1.6;margin:0}
+.editor-ready-brief{border-radius:9px;border:1px solid #e1e8f4;background:#fff;overflow:hidden}
+.editor-ready-brief summary{cursor:pointer;display:flex;align-items:center;gap:7px;padding:10px;color:#28456f;font-weight:700;font-size:12px}
+.editor-ready-brief summary svg:last-child{margin-left:auto}
+.editor-ready-brief[open] summary{border-bottom:1px solid #e1e8f4}
+.editor-ready-brief div,.editor-ready-brief>p{font-size:12px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;padding:11px;margin:0;color:#405273}
+.editor-ready-brief div p{margin:7px 0 0}
+.editor-ready-note{font-size:11px;line-height:1.6;color:#68758b}
+.editor-ready-actions{display:grid;grid-template-columns:1fr;gap:7px}
+.editor-ready-actions .btn{font-size:12px;white-space:normal;justify-content:center;line-height:1.4;min-height:40px}
+@media(min-width:1200px){.editor-ready-proposal{padding:15px}}
+@media(max-width:850px){.editor-ready-proposal{margin-top:16px;padding:16px}.editor-ready-actions{grid-template-columns:1fr 1fr}}
+@media(max-width:510px){.editor-ready-actions{grid-template-columns:1fr}}
