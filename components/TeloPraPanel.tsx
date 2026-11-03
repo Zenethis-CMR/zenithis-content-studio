@@ -71,7 +71,12 @@ export function TeloPraPanel({brand,canManage,canEdit}:{brand:BrandId;canManage:
   try{
    const result=await invoke({action:'connect',baseUrl:baseUrl.trim(),instance:instance.trim(),apiKey});
    setApiKey('');setReveal(false);setShowForm(false);
-   setNotice(String(result.message||'Connexion enregistrée'));
+   try{
+    const first=await invoke({action:'sync'});
+    setNotice('Connexion confirmée. '+String(first.chats||0)+' conversations et '+String(first.messages||0)+' messages récents importés.');
+   }catch{
+    setNotice('Connexion enregistrée et sécurisée. La première synchronisation peut être relancée avec le bouton Synchroniser.');
+   }
    await load();
   }catch(e){setError(e instanceof Error?e.message:'Connexion impossible')}
   finally{setConnecting(false)}
@@ -86,6 +91,21 @@ export function TeloPraPanel({brand,canManage,canEdit}:{brand:BrandId;canManage:
   }catch(e){setError(e instanceof Error?e.message:'Synchronisation impossible')}
   finally{setSyncing(false)}
  };
+ useEffect(()=>{
+  if(!canEdit||!status?.instance_name||!studioClient)return;
+  // Automatic synchronization is active only while this user keeps the app open.
+  const timer=window.setInterval(async()=>{
+   if(document.visibilityState!=='visible')return;
+   try{
+    await studioClient!.functions.invoke('telopra-bridge',{body:{brand,action:'sync'}});
+    await load();
+   }catch{
+    // Last error remains available in the status panel. No hidden sending of messages.
+   }
+  },15*60*1000);
+  return()=>window.clearInterval(timer);
+ },[brand,canEdit,status?.instance_name,load]);
+
  const filtered=chats.filter(c=>(c.display_name||c.remote_jid).toLowerCase().includes(filter.toLowerCase()));
  const selected=chats.find(c=>c.remote_jid===activeChat);
  const online=!!status&&['connected','open','partial'].includes(status.connection_state);
@@ -156,6 +176,6 @@ export function TeloPraPanel({brand,canManage,canEdit}:{brand:BrandId;canManage:
    </div>:<div className="telopra-empty"><SiWhatsapp size={32}/><strong>{status?'Aucune conversation importée':'Aucune connexion TeloPra pour cette marque'}</strong>
     <p>{status?'Cliquez sur « Synchroniser » pour importer les échanges.':'Connectez l’instance déjà scannée sur TeloPra pour suivre son activité dans Zenithis Studio.'}</p></div>}
   </div>
-  <p className="telopra-footnote">Import manuel en lecture seule, limité aux conversations et messages récents. Les statuts et qualifications propres à TeloPra nécessitent un raccordement supplémentaire à son API métier.</p>
+  <p className="telopra-footnote">Import en lecture seule des conversations récentes. Actualisation automatique toutes les 15 minutes lorsque ce module reste ouvert, avec synchronisation manuelle à tout moment. Les qualifications et automatisations propres à TeloPra nécessitent son API métier.</p>
  </section>;
 }
