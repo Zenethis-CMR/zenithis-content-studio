@@ -39,3 +39,16 @@
 .channel-pinterest{background:#fff0f2;color:#e60023}
 .channel-whatsapp{background:#e6fff2;color:#25d366}
 .channel-threads{background:#f1f2f5;color:#111827}
+
+/* Official social-media brand marks — full-color backgrounds and SVG glyphs. */
+.channel{box-shadow:0 1px 3px rgba(12,32,76,.1);transition:transform .14s ease,box-shadow .14s ease}
+.channel svg{color:inherit;fill:currentColor}
+.channel-facebook{background:#0866ff;color:#fff}
+.channel-instagram{background:linear-gradient(145deg,#5b41d7 3%,#bd22a2 38%,#f44759 68%,#feb95b 100%);color:#fff}
+.channel-tiktok{background:#111827;color:#fff}
+.channel-youtube,.channel-youtube-shorts{background:#ff0033;color:#fff}
+.channel-linkedin{background:#0a66c2;color:#fff}
+.channel-pinterest{background:#e60023;color:#fff}
+.channel-whatsapp{background:#25d366;color:#fff}
+.channel-threads{background:#121212;color:#fff}
+.channel-other{background:#e9eff8;color:#607398}
