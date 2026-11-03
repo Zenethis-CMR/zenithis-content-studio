@@ -133,29 +133,33 @@ Deno.serve(async(req:Request)=>{
   }
   let savedMessages=0,failedChats=0;
   // A bounded read-only import protects Evolution and Edge Functions from unbounded jobs.
-  for(const chat of chats.slice(0,20)){
-   try{
-    const found=object(await evolution(base,instance,apiKey,"chat/findMessages",{
-      where:{key:{remoteJid:chat.remote_jid}},page:1,offset:15
-    }));
-    const container=object(found.messages);
-    const records=Array.isArray(container.records)?container.records:Array.isArray(found.records)?found.records:[];
-    const messages=records.slice(0,15).map(object).map(msg=>{
-     const key=object(msg.key);
-     const id=str(key.id)||str(msg.id);
-     return id?{
-      brand_id:brand,message_id:id,remote_jid:chat.remote_jid,
-      sent_at:timestamp(msg.messageTimestamp)||timestamp(msg.timestamp),
-      from_me:key.fromMe===true,message_type:(str(msg.messageType)||"text").slice(0,80),
-      text_body:textMessage(msg),updated_at:now()
-     }:null;
-    }).filter(x=>x!==null);
-    if(messages.length){
-     const stored=await admin.from("studio_telopra_messages").upsert(messages,{onConflict:"brand_id,message_id"});
-     if(stored.error)throw new Error("Message storage failed");
-     savedMessages+=messages.length;
-    }
-   }catch{failedChats++}
+  const recentChats=chats.slice(0,20);
+  // Four parallel requests per batch; bounded to 20 chats to limit load on TeloPra.
+  for(let i=0;i<recentChats.length;i+=4){
+   await Promise.all(recentChats.slice(i,i+4).map(async(chat)=>{
+    try{
+     const found=object(await evolution(base,instance,apiKey,"chat/findMessages",{
+       where:{key:{remoteJid:chat.remote_jid}},page:1,offset:15
+     }));
+     const container=object(found.messages);
+     const records=Array.isArray(container.records)?container.records:Array.isArray(found.records)?found.records:[];
+     const messages=records.slice(0,15).map(object).map(msg=>{
+      const key=object(msg.key);
+      const id=str(key.id)||str(msg.id);
+      return id?{
+       brand_id:brand,message_id:id,remote_jid:chat.remote_jid,
+       sent_at:timestamp(msg.messageTimestamp)||timestamp(msg.timestamp),
+       from_me:key.fromMe===true,message_type:(str(msg.messageType)||"text").slice(0,80),
+       text_body:textMessage(msg),updated_at:now()
+      }:null;
+     }).filter(x=>x!==null);
+     if(messages.length){
+      const stored=await admin.from("studio_telopra_messages").upsert(messages,{onConflict:"brand_id,message_id"});
+      if(stored.error)throw new Error("Message storage failed");
+      savedMessages+=messages.length;
+     }
+    }catch{failedChats++}
+   }));
   }
   const partial=failedChats>0;
   await admin.from("studio_telopra_status").upsert({
