@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
 import {StudioLogin,StudioOnboarding} from './StudioAuth';
+import {parseStudioRoute,serializeStudioRoute} from '@/lib/studio-routing';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
 import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
 import { BRAND_INFO, emptyLibrary, seededMedia, statuses, normalizeStatus, labelForType, asDate, longDate, shortDate, byDate, socialChannels, downloadJson } from '@/lib/data';
@@ -79,6 +80,10 @@ export default function Studio(){
  const [profileMenuOpen,setProfileMenuOpen]=useState(false);
  const profileMenuRef=useRef<HTMLDivElement>(null);
  const [view,setView]=useState<View>('overview');
+ const [routeHydrated,setRouteHydrated]=useState(false);
+ const [selectedWhatsappStage,setSelectedWhatsappStage]=useState<'1'|'2'|'3'|'4'>('2');
+ const [selectedEventId,setSelectedEventId]=useState('');
+ const [filterWeek,setFilterWeek]=useState('Toutes les semaines');
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
  const [libraries,setLibraries]=useState<Record<BrandId,WorkspaceData>>({bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')});
  const [ready,setReady]=useState(false);
@@ -119,6 +124,54 @@ export default function Studio(){
  const fileInput=useRef<HTMLInputElement>(null);
  const importInput=useRef<HTMLInputElement>(null);
 
+ // Route hydration and browser history. The URL remains the source of truth on refresh/back/forward.
+ useEffect(()=>{
+  const restore=()=>{
+   const route=parseStudioRoute(window.location.search);
+   setView(route.view);
+   if(route.brand)setBrand(route.brand);
+   setSelectedPostId(route.post||'');
+   setSelectedMediaId(route.media||'');
+   setSelectedScript(route.script||'');
+   setSelectedEventId(route.event||'');
+   setSelectedWhatsappStage(route.stage||'2');
+   setEditTab(route.tab||'contenu');
+   setFilterWeek(route.week||'Toutes les semaines');
+   if(route.date){
+    setSelectedDate(route.date);
+    const date=new Date(route.date+'T12:00:00');
+    if(!Number.isNaN(date.getTime()))setCalendarMonth(new Date(date.getFullYear(),date.getMonth(),1));
+   }
+   setMobileMenu(false);
+   setBrandMenuOpen(false);
+   setProfileMenuOpen(false);
+   setRouteHydrated(true);
+  };
+  restore();
+  window.addEventListener('popstate',restore);
+  return()=>window.removeEventListener('popstate',restore);
+ },[]);
+ useEffect(()=>{
+  if(!access?.allowedBrands.length)return;
+  if(!access.allowedBrands.includes(brand))setBrand(access.allowedBrands[0]);
+ },[brand,access]);
+ useEffect(()=>{
+  if(!routeHydrated||!ready||!access||onboardingMode||!access.allowedBrands.includes(brand))return;
+  const target=serializeStudioRoute({
+   brand,view,
+   post:view==='editor'?selectedPostId:undefined,
+   media:view==='media'?selectedMediaId:undefined,
+   script:view==='video'?selectedScript:undefined,
+   date:view==='calendar'?selectedDate:undefined,
+   tab:view==='editor'?editTab:undefined,
+   event:view==='whatsapp'?selectedEventId:undefined,
+   stage:view==='whatsapp'?selectedWhatsappStage:undefined,
+   week:view==='planning'||view==='campaigns'?filterWeek:undefined
+  },window.location.search);
+  if(target!==window.location.search){
+   window.history.pushState({zenithisStudio:true},'',window.location.pathname+target+window.location.hash);
+  }
+ },[routeHydrated,ready,access,brand,view,selectedPostId,selectedMediaId,selectedScript,selectedDate,editTab,selectedWhatsappStage,selectedEventId,filterWeek,onboardingMode]);
 
  useEffect(()=>{
   if(typeof window==='undefined')return;
@@ -237,14 +290,21 @@ export default function Studio(){
  const chosenVariant=ws.variants.find(v=>v.id===variantId)||currentVariants[0];
  const filtered=useMemo(()=>allPosts.filter(p=>{
   const hay=[p.title,p.caption,p.id,p.pillar,p.type,p.stage].join(' ').toLowerCase();
-  return (!search||hay.includes(search.toLowerCase()))&&(filterStatus==='Tous les statuts'||normalizeStatus(p.status)===filterStatus)&&(filterChannel==='Tous les canaux'||p.channels.some(c=>c.toLowerCase().includes(filterChannel.toLowerCase())));
- }).sort(byDate),[allPosts,search,filterStatus,filterChannel]);
+  return (!search||hay.includes(search.toLowerCase()))&&(filterStatus==='Tous les statuts'||normalizeStatus(p.status)===filterStatus)&&(filterChannel==='Tous les canaux'||p.channels.some(c=>c.toLowerCase().includes(filterChannel.toLowerCase())))&&(filterWeek==='Toutes les semaines'||p.week===filterWeek);
+ }).sort(byDate),[allPosts,search,filterStatus,filterChannel,filterWeek]);
  const upcoming=useMemo(()=>[...allPosts].sort(byDate).filter(x=>x.date>='2026-11-02').slice(0,6),[allPosts]);
  const pipeline=useMemo(()=>statuses.map(s=>({name:s,count:allPosts.filter(p=>normalizeStatus(p.status)===s).length})),[allPosts]);
  const stats={posts:allPosts.length,variants:ws.variants.length,videos:raw.scripts.length,published:pipeline.find(x=>x.name==='Publié')?.count||0,scheduled:pipeline.find(x=>x.name==='Programmé')?.count||0};
  const countsByWeek=useMemo(()=>Array.from({length:8},(_,i)=>{const week=`S${i+1}`;return {week,planned:allPosts.filter(p=>p.week===week).length,published:allPosts.filter(p=>p.week===week&&normalizeStatus(p.status)==='Publié').length}}),[allPosts]);
  const notify=(message:string,kind:'success'|'info'|'warning'='success')=>setToast({message,kind});
- const switchBrand=(id:BrandId)=>{setBrandMenuOpen(false);setProfileMenuOpen(false);if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}if(id===brand)return;setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
+ const switchBrand=(id:BrandId)=>{
+  setBrandMenuOpen(false);setProfileMenuOpen(false);
+  if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}
+  if(id===brand)return;
+  setBrand(id);setSelectedPostId('');setSelectedMediaId('');setSelectedScript('');
+  setSelectedEventId('');setSearch('');setFilterWeek('Toutes les semaines');
+  setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux');
+ };
  useEffect(()=>{
   if(!brandMenuOpen)return;
   const closeOutside=(event:MouseEvent)=>{if(!brandMenuRef.current?.contains(event.target as Node))setBrandMenuOpen(false)};
@@ -380,7 +440,7 @@ export default function Studio(){
   <div className="post-card-body"><button type="button" onClick={()=>openEditor(p)} className="post-card-title">{p.title}</button><p>{clean(p.caption,compact?75:105)}</p><div className="card-meta"><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge>{!compact&&<span>{shortDate(p.date)} · {p.time}</span>}</div></div>
   <IconButton title="Éditer" onClick={()=>openEditor(p)}><ArrowUpRight size={16}/></IconButton>
  </article>;
- const ToolbarFilters=()=> <div className="toolbar-filters"><div className="inline-search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un contenu..." aria-label="Rechercher un contenu"/></div><select aria-label="Statut" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option>Tous les statuts</option>{statuses.map(s=><option key={s}>{s}</option>)}</select><select aria-label="Canal" value={filterChannel} onChange={e=>setFilterChannel(e.target.value)}><option>Tous les canaux</option>{socialChannels.map(c=><option key={c}>{c}</option>)}</select><span className="muted little">{filtered.length} contenus</span></div>;
+ const ToolbarFilters=()=> <div className="toolbar-filters"><div className="inline-search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un contenu..." aria-label="Rechercher un contenu"/></div><select aria-label="Statut" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option>Tous les statuts</option>{statuses.map(s=><option key={s}>{s}</option>)}</select><select aria-label="Canal" value={filterChannel} onChange={e=>setFilterChannel(e.target.value)}><option>Tous les canaux</option>{socialChannels.map(c=><option key={c}>{c}</option>)}</select><select aria-label="Semaine" value={filterWeek} onChange={e=>setFilterWeek(e.target.value)}><option>Toutes les semaines</option>{Array.from({length:8},(_,i)=><option key={i} value={'S'+(i+1)}>{'S'+(i+1)}</option>)}</select><span className="muted little">{filtered.length} contenus</span></div>;
 
 
  const authPanel:React.CSSProperties={minHeight:'100vh',display:'grid',placeItems:'center',background:'#f3f6ff',padding:'24px'};
