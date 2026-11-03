@@ -670,7 +670,7 @@ export default function Studio(){
       </button>)}
      </div>
 
-     <section className="panel closer-panel" aria-label="Bibliothèque commerciale WhatsApp">
+     <section id="studio-whatsapp-sequences" className="panel closer-panel" aria-label="Bibliothèque commerciale WhatsApp">
       <div className="panel-header"><div><h2>Closer 2.0 · Réponses rapides</h2>
        <p>{closerStageNames[selectedWhatsappStage]} · {info.label} · Chaque texte est distinct et s'adapte à un signal précis.</p>
       </div><Badge tone="mint">{closingPlaybooks[brand].filter(m=>m.step===selectedWhatsappStage).length} situations</Badge></div>
@@ -688,7 +688,7 @@ export default function Studio(){
        </article>)}
       </div>
      </section>
-     {selectedWhatsappStage!=='1'&&<div className="panel" id="studio-whatsapp-sequences">
+     {selectedWhatsappStage!=='1'&&<div className="panel" id="studio-whatsapp-events">
       <div className="panel-header">
        <div><h2>Messages spécifiques aux présentations</h2><p>{selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
        {raw.config.whatsapp?.startsWith('https://')?
