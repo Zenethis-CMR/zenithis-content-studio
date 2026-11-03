@@ -437,7 +437,7 @@ export default function Studio(){
     {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(access?.allowedBrands||[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div>
  {(manageableBrands.length>0)&&<div className="setting-section">
  <h3><Users size={18} style={{verticalAlign:'middle',marginRight:8}}/>Accès aux marques</h3>
- <p>Autorisez des utilisateurs par adresse e-mail. Ils recevront leur lien de connexion en le demandant depuis l’application. Seuls les propriétaires et le super-administrateur peuvent accorder des accès.</p>
+ <p>Attribuez une marque et envoyez automatiquement un e-mail de configuration du compte. La personne définit ensuite son prénom, son nom et son mot de passe. Seuls les propriétaires et le super-administrateur peuvent accorder des accès.</p>
  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10,marginTop:12}}>
  <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="adresse@email.com" aria-label="Adresse de l’utilisateur à inviter" style={{padding:11,border:'1px solid #d6dff4',borderRadius:9}}/>
  <select aria-label="Espace à partager" value={manageableBrands.includes(inviteBrand)?inviteBrand:manageableBrands[0]} onChange={e=>setInviteBrand(e.target.value as BrandId)} style={{padding:11,border:'1px solid #d6dff4',borderRadius:9}}>
@@ -446,7 +446,7 @@ export default function Studio(){
  <select aria-label="Niveau d’accès" value={inviteRole} onChange={e=>setInviteRole(e.target.value as BrandRole)} style={{padding:11,border:'1px solid #d6dff4',borderRadius:9}}>
  <option value="editor">Éditeur</option><option value="viewer">Lecture seule</option>{access?.isSuperadmin&&<option value="owner">Propriétaire</option>}
  </select>
- <button type="button" className="btn btn-primary" disabled={inviteBusy} onClick={()=>void grantAccess()}>{inviteBusy?'Enregistrement…':'Autoriser l’accès'}</button>
+ <button type="button" className="btn btn-primary" disabled={inviteBusy} onClick={()=>void grantAccess()}>{inviteBusy?'Enregistrement…':'Attribuer et inviter'}</button>
  </div>
  <div style={{marginTop:15,display:'grid',gap:8}}>
  {grantRows.map(g=><div key={g.brand_id+'-'+g.email} style={{display:'flex',alignItems:'center',gap:9,justifyContent:'space-between',padding:'9px 12px',background:'#f5f8ff',borderRadius:10,flexWrap:'wrap'}}>
