@@ -59,7 +59,7 @@ Deno.serve(async(req:Request)=>{
   const brand=payload.brand;
   const role=payload.role;
   const action=payload.action===undefined?"send":payload.action;
-  if(!/^[^\\s@]{1,64}@[^\\s@]{1,190}\\.[^\\s@]+$/.test(email)||
+  if(!/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]+$/.test(email)||
      !["bonas","lzo"].includes(String(brand))||
      !["owner","editor","viewer"].includes(String(role))||
      !["send","manual_link"].includes(String(action))){
