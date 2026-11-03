@@ -113,3 +113,24 @@
 .source-row.navigable-block{padding-left:10px;padding-right:10px;margin-inline:-10px;border-radius:10px}
 .source-row.navigable-block:hover{background:#f5f9ff}
 .source-row.navigable-block:focus-visible{outline-offset:0}
+
+
+/* Closer 2.0: manual, stage-specific WhatsApp scripts */
+.closer-panel{margin-bottom:20px}
+.closer-guidance{display:flex;align-items:flex-start;gap:10px;padding:12px 15px;border:1px solid var(--border,#e6e9ef);border-radius:12px;margin:0 0 18px;background:var(--bg-soft,#fafbfc)}
+.closer-guidance svg{flex-shrink:0;margin-top:3px;color:#b37c51}
+.closer-guidance p{margin:0;font-size:13px;line-height:1.6;color:var(--text-muted,#667085)}
+.closer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.closer-card{display:flex;flex-direction:column;min-width:0;padding:19px;border:1px solid var(--border,#e8eaf0);border-radius:15px;background:var(--surface,#fff)}
+.closer-card-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.closer-card-heading h3{font-size:15px;line-height:1.4;letter-spacing:-.01em;margin:0}
+.closer-keyword{padding:4px 8px;font-size:10px;letter-spacing:.055em;font-weight:800;color:#207444;border:1px solid #ceedd8;border-radius:7px;background:#f0faf4}
+.closer-trigger{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.4;color:var(--text-muted,#667085);margin:0 0 14px}
+.closer-trigger svg{flex-shrink:0}
+.closer-copy{white-space:pre-line;flex:1;line-height:1.8;font-size:14px;margin:0;color:var(--text,#262b34)}
+.closer-card-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--border,#e8eaf0);margin-top:18px;padding-top:14px}
+.closer-card-footer>span{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.45;color:var(--text-muted,#667085)}
+.closer-card-footer>span svg{flex-shrink:0;margin-top:1px}
+.closer-card-footer button{flex-shrink:0}
+@media(max-width:990px){.closer-grid{grid-template-columns:1fr}}
+@media(max-width:550px){.closer-card{padding:15px}.closer-card-footer{flex-direction:column;align-items:stretch}.closer-card-footer button{justify-content:center}}
