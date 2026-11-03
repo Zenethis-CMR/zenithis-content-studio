@@ -10,7 +10,7 @@ import {
   Bookmark, Pencil, Trash2, MoveRight, Target, TrendingUp, ArrowRight, Activity,
   MapPin, ClipboardCheck, Info, RotateCcw, CircleAlert, SlidersHorizontal, Link2, LogOut,
   FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
-  CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
+  CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle, Mail
 } from 'lucide-react';
 import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
 import {StudioLogin,StudioOnboarding} from './StudioAuth';
