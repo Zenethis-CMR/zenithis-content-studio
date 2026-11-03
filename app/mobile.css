@@ -177,6 +177,7 @@
  .asset-caption strong{font-size:11px;overflow-wrap:anywhere}
  .asset-details{display:none}
  .asset-details.asset-details-open{display:block;scroll-margin-top:116px}
+ #studio-script-detail,#studio-calendar-day-details{scroll-margin-top:125px}
  .asset-large img{max-height:42dvh;object-fit:contain}
  .pill-tabs{display:flex;overflow-x:auto;white-space:nowrap;gap:7px;padding-bottom:5px;scrollbar-width:none}
  .pill-tabs button{flex:none;min-height:42px}
