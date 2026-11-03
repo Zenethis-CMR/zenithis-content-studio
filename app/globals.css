@@ -143,3 +143,17 @@
 .editor-v2-proposal p{font-size:13px;white-space:pre-line;line-height:1.7;margin:0;max-height:270px;overflow:auto}
 .editor-v2-proposal small{font-size:11px;line-height:1.5;color:#6b7280}
 .editor-v2-proposal .btn{width:100%;justify-content:center}
+
+
+/* Invitation/SMTP diagnostics */
+.studio-invite-help{grid-column:1/-1;line-height:1.55;color:#64748b;font-size:12px;margin:1px 0}
+.studio-invite-help a{display:inline-block;margin-left:5px;text-decoration:underline}
+.studio-invite-feedback{grid-column:1/-1;display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:12px 15px;border:1px solid #c7d7eb;border-radius:11px;background:#f6f9ff;font-size:13px;line-height:1.55;margin-top:8px}
+.studio-invite-feedback p{margin:0}
+.studio-invite-feedback strong{font-size:13px}
+.studio-invite-error{border-color:#f4b8b2;background:#fff4f2}
+.studio-invite-success{border-color:#b7dccd;background:#f3fcf8}
+.studio-invite-info{border-color:#b9ccf4;background:#f1f6ff}
+.studio-grant-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}
+.studio-grant-actions .btn{font-size:12px;padding:7px 9px}
+@media(max-width:650px){.studio-grant-actions{width:100%;margin-left:0}.studio-grant-actions .btn{flex:1;justify-content:center}}
