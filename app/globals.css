@@ -134,3 +134,12 @@
 .closer-card-footer button{flex-shrink:0}
 @media(max-width:990px){.closer-grid{grid-template-columns:1fr}}
 @media(max-width:550px){.closer-card{padding:15px}.closer-card-footer{flex-direction:column;align-items:stretch}.closer-card-footer button{justify-content:center}}
+
+
+/* Non-destructive Closer V2 proposal beside the existing content editor */
+.editor-v2-proposal{display:flex;flex-direction:column;gap:11px;padding:16px;margin:14px 0;border:1px solid #dfd2ba;border-radius:14px;background:linear-gradient(160deg,#fffaf0 0%,#fff 80%)}
+.editor-v2-eyebrow{display:flex;align-items:center;gap:7px;color:#926629;font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+.editor-v2-proposal h4{font-size:15px;line-height:1.4;margin:0}
+.editor-v2-proposal p{font-size:13px;white-space:pre-line;line-height:1.7;margin:0;max-height:270px;overflow:auto}
+.editor-v2-proposal small{font-size:11px;line-height:1.5;color:#6b7280}
+.editor-v2-proposal .btn{width:100%;justify-content:center}
