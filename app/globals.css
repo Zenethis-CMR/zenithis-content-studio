@@ -65,3 +65,43 @@
 .profile-dropdown button:hover,.profile-dropdown button:focus-visible{background:#eff5ff;color:#2869ea;outline:none}
 .profile-dropdown button:last-child{color:#b43e53}
 .profile-dropdown button:last-child:hover{background:#fff2f3}
+
+/* Accessible navigation: entire cards, rows and steps lead to the intended module. */
+.navigable-block{cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+.navigable-block:hover{border-color:#91b6ff;box-shadow:0 7px 22px rgba(35,88,189,.14)}
+.navigable-block:focus-visible,.navigable-table-row:focus-visible{outline:3px solid #568aff;outline-offset:3px}
+.metric-card.navigable-block{display:block;width:100%;color:var(--ink);font:inherit;text-align:left}
+.metric-card.navigable-block:hover{transform:translateY(-2px)}
+.navigable-table-row{cursor:pointer}
+.navigable-table-row:hover td{background:#f0f5ff!important}
+.navigable-table-row:focus-visible td{background:#f0f5ff}
+.post-card.navigable-block{position:relative}
+.post-card-arrow{color:#4279e5;flex-shrink:0;margin-top:8px}
+.post-card.navigable-block:hover .post-card-title,.kanban-card.navigable-block:hover .kanban-title{color:#2d69e5}
+.kanban-card.navigable-block{cursor:pointer}
+.kanban-card.navigable-block:active{cursor:grabbing}
+.kanban-card.navigable-block .kanban-title{display:block}
+.chart-col.navigable-block{appearance:none;border:0;background:transparent;padding:5px;min-width:0;border-radius:8px;font:inherit;color:inherit}
+.chart-col.navigable-block:hover{background:#f0f5ff;transform:translateY(-2px)}
+.step-flow>button{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:9px 10px;border:1px solid transparent;border-radius:10px;color:#526587;font-weight:700;font-size:11px;background:transparent}
+.step-flow>button:hover,.step-flow>button:focus-visible{background:#f0f5ff;border-color:#cadcff;color:#2367dc;outline:none}
+.step-flow>button>svg{margin-left:auto}
+.campaign-week.navigable-block:hover{transform:translateY(-2px)}
+.funnel-card.navigable-block{appearance:none;width:100%;border:1px solid #e7eef9;background:#fff;font:inherit;text-align:left;position:relative}
+.funnel-card.navigable-block:hover{transform:translateY(-2px)}
+.funnel-card-active,.funnel-card-active:hover{border-color:#80aaff!important;background:#f4f8ff!important;box-shadow:0 5px 15px rgba(35,88,189,.1)}
+.funnel-card svg{color:#3674d8}
+.funnel-card svg[style*="37, 211, 102"],.funnel-card svg[style*="#25d366"]{color:#25d366}
+.funnel-card .funnel-arrow{position:absolute;top:15px;right:15px;color:#8fa8cf}
+#studio-whatsapp-sequences{scroll-margin-top:25px}
+.event-card.navigable-block{cursor:pointer}
+.event-card-active{background:#fff!important;border-color:#8aaff0!important;box-shadow:0 5px 18px rgba(35,88,189,.08)}
+.event-head svg{flex-shrink:0;color:#6a84ac}
+.event-expanded{border-top:1px solid #e1eaf7;margin-top:13px;padding-top:12px;font-size:11px;line-height:1.6;color:#4c6086}
+.event-expanded p{white-space:pre-wrap;margin:6px 0}
+.event-expanded small{color:#899bb8}
+.btn-whatsapp{background:#25d366!important;border-color:#1bbd58!important;color:#fff!important}
+.btn-whatsapp svg{color:#fff!important}
+.btn-whatsapp:hover{background:#1cb959!important}
+.sidebar .side-nav .nav-link:has(svg[style*="#25d366"]){color:#128947}
+@media(prefers-reduced-motion:reduce){.navigable-block{transition:none!important}.navigable-block:hover{transform:none!important}}
