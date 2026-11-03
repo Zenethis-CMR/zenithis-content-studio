@@ -52,3 +52,16 @@
 .channel-whatsapp{background:#25d366;color:#fff}
 .channel-threads{background:#121212;color:#fff}
 .channel-other{background:#e9eff8;color:#607398}
+
+/* Account dropdown: explicit navigation instead of a misleading chevron. */
+.profile-menu-wrap{position:relative;display:flex;align-items:center;z-index:85}
+.profile-trigger{cursor:pointer}
+.profile-trigger-open,.profile-trigger:focus-visible{background:#edf4ff;outline:2px solid #9bbaff;outline-offset:2px;border-radius:13px}
+.profile-dropdown{position:absolute;top:calc(100% + 12px);right:0;min-width:250px;width:max-content;max-width:min(325px,calc(100vw - 24px));padding:8px;background:#fff;border:1px solid #dfe8f8;border-radius:15px;box-shadow:0 18px 45px rgba(22,49,102,.18);z-index:180;animation:workspace-menu-enter .15s ease-out}
+.profile-dropdown-header{display:grid;gap:5px;padding:12px 12px 13px;border-bottom:1px solid #e9eef7;margin-bottom:6px;overflow-wrap:anywhere}
+.profile-dropdown-header strong{font-size:12px;color:#132046}
+.profile-dropdown-header small{font-size:10px;color:#7789ac}
+.profile-dropdown button{width:100%;display:flex;align-items:center;gap:11px;border:0;background:transparent;color:#21365e;font-size:12px;font-weight:750;text-align:left;padding:12px;border-radius:9px;cursor:pointer}
+.profile-dropdown button:hover,.profile-dropdown button:focus-visible{background:#eff5ff;color:#2869ea;outline:none}
+.profile-dropdown button:last-child{color:#b43e53}
+.profile-dropdown button:last-child:hover{background:#fff2f3}
