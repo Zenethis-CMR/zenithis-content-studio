@@ -118,7 +118,7 @@ export default function Studio(){
     const roles:Partial<Record<BrandId,BrandRole>>={};
     for(const item of brands.data||[]){
       if((item.brand_id==='bonas'||item.brand_id==='lzo')&&
-         (item.role==='owner'||item.role==='editor'||item.role==='viewer'))roles[item.brand_id]=item.role;
+         (item.role==='owner'||item.role==='editor'||item.role==='viewer'))roles[item.brand_id as BrandId]=item.role as BrandRole;
     }
     const isSuperadmin=!!admins.data;
     const allowedBrands:BrandId[]=isSuperadmin?['bonas','lzo']:(['bonas','lzo'] as BrandId[]).filter(id=>!!roles[id]);
