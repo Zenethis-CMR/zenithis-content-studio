@@ -506,7 +506,11 @@ export default function Studio(){
  {dbProblem&&<><p>Vérifiez les autorisations de marque dans Supabase pour le compte {user.email}.</p><button className="btn btn-outline" onClick={()=>studioClient?.auth.signOut()}>Changer de compte</button></>}
  </div></main>;
  return <div className="studio-shell" style={{'--brand-accent':info.color,'--brand-light':info.light} as React.CSSProperties}>
-  <div style={{position:'fixed',right:12,bottom:12,zIndex:9999,background:dbProblem?'#fff0f0':'#e8fff4',border:'1px solid #b3dfc4',borderRadius:9,padding:'9px 14px',fontSize:12,maxWidth:460,boxShadow:'0 3px 15px #0c22441c'}} role="status">{dbProblem?'⚠ '+dbProblem:'☁ '+dbMessage}</div>
+  <div className={'sync-indicator'+(dbProblem?' sync-indicator-error':'')} role="status" title={dbProblem||dbMessage}>
+   <span className="sync-indicator-dot"/>
+   <span className="sync-indicator-message">{dbProblem||dbMessage}</span>
+   <span className="sync-indicator-short">{dbProblem?'Erreur de sauvegarde':dbMessage.toLowerCase().includes('cours')?'Synchronisation…':'Supabase actif'}</span>
+  </div>
   <aside id="studio-mobile-drawer" aria-label="Modules du studio" className={'sidebar '+(mobileMenu?'sidebar-open':'')}>
     <div className="logo-row"><button type="button" className="logo-home-btn" aria-label="Retour à l’accueil" onClick={()=>{setView('overview');setMobileMenu(false)}}><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span></button><IconButton className="mobile-dismiss" title="Fermer le menu" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
     <div className="sidebar-workspace" ref={brandMenuRef}>
@@ -533,7 +537,7 @@ export default function Studio(){
     <nav className="side-nav" aria-label="Navigation principale">{nav.map(([key,label,Icon])=><button type="button" onClick={()=>{setView(key);setMobileMenu(false);setSearch('')}} key={key} className={'nav-link '+(view===key?'nav-active':'')}><Icon size={19} strokeWidth={1.9}/><span>{label}</span>{key==='planning'&&<span className="nav-count">{stats.posts}</span>}</button>)}</nav>
     <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={16}/> CONSEIL DU STUDIO</span><p>Un bon contenu explique avant de convaincre.</p><button onClick={()=>setView('sources')}>Consulter les sources <ArrowRight size={14}/></button></div><div className="sidebar-foot"><span className="online-dot"/> Supabase · Accès sécurisés</div></div>
   </aside>
-  {mobileMenu&&<div className="mobile-overlay" onClick={()=>setMobileMenu(false)}/>}
+  {mobileMenu&&<div className="mobile-overlay" role="presentation" onClick={()=>setMobileMenu(false)}/>}
   <div className="app-column">
    <header className="topbar"><IconButton className="hamburger" title="Ouvrir les modules" onClick={()=>setMobileMenu(true)}><Menu size={23}/></IconButton>
    <div className="mobile-brand-head">
