@@ -37,7 +37,7 @@ const socialIconByChannel:Record<string,React.ComponentType<{size?:number}>>={
 // Toutes les variantes de format d'un réseau réutilisent le même logo officiel.
 // Exemple : "Facebook Reels" et "Facebook Stories" affichent le logo Facebook.
 const canonicalNetwork=(value:string):string=>{
- const normalized=value.trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[\\s_-]+/g,' ');
+ const normalized=value.trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[\s_-]+/g,' ');
  if(normalized.startsWith('facebook')||normalized==='fb')return 'Facebook';
  if(normalized.startsWith('instagram')||normalized==='insta')return 'Instagram';
  if(normalized.startsWith('tiktok')||normalized.startsWith('tik tok'))return 'TikTok';
@@ -66,7 +66,7 @@ function Channel({name,small=false}:{name:string;small?:boolean}){
  const Icon=socialIconByChannel[network];
  return <span title={name} aria-label={name} data-network={network||'other'}
   className={'channel channel-'+channelClass(name)+(small?' channel-mini':'')}>
-  {Icon?<Icon aria-hidden size={small?17:21}/>:<Megaphone aria-hidden size={small?15:18}/>}
+  {Icon?<Icon size={small?17:21}/>:<Megaphone aria-hidden size={small?15:18}/>}
  </span>;
 }
 function IconButton({children,onClick,title,className=''}:{children:React.ReactNode;onClick?:()=>void;title?:string;className?:string}){return <button type="button" onClick={onClick} title={title} className={'icon-btn '+className}>{children}</button>}
