@@ -1,5 +1,5 @@
 import {createClient, type SupabaseClient} from '@supabase/supabase-js';
-import type {BrandId, PersistentWorkspace, MediaAsset} from './types';
+import type {BrandId, PersistentWorkspace, MediaAsset, WorkspaceData} from './types';
 export const studioClient:SupabaseClient|null =
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -57,4 +57,12 @@ export async function uploadStudioMedia(file:File,brand:BrandId):Promise<MediaAs
  if(signed.error)throw signed.error;
  return {id:'media-'+crypto.randomUUID(),brand,name:file.name,kind:file.type.startsWith('image/')?'Image':file.type.startsWith('video/')?'Vidéo':'Document',
  src:signed.data.signedUrl,storagePath:path,format:file.type,created:new Date().toISOString().slice(0,10),size:(file.size/1024/1024).toFixed(2)+' Mo'};
+}
+
+/** Editorial resources are private and fetched only after brand authorization. */
+export async function readStudioLibrary(brand:BrandId):Promise<WorkspaceData>{
+ if(!studioClient)throw new Error('Supabase non configuré');
+ const {data,error}=await studioClient.from('studio_libraries').select('payload').eq('brand_id',brand).single();
+ if(error)throw error;
+ return data.payload as WorkspaceData;
 }
