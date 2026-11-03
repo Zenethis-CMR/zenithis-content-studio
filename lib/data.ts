@@ -1,7 +1,14 @@
 import type {BrandId,ContentPost,MediaAsset,WorkspaceData,Status} from './types';
-import bonas from '@/data/bonas.json';
-import lzo from '@/data/lzo.json';
-export const templates:Record<BrandId,WorkspaceData>={bonas:bonas as WorkspaceData,lzo:lzo as WorkspaceData};
+// Editorial content is stored in Supabase and never bundled into public JavaScript.
+export function emptyLibrary(brandId:BrandId):WorkspaceData{
+ const isBonas=brandId==='bonas';
+ return {
+  config:{brand:isBonas?'BONAS-INC':'LZO Empire',owner:isBonas?'Sandrine Mamiafo':'Laurence Fedjou Zonfack',tagline:'',accent:'',whatsapp:''},
+  posts:[],variants:[],scripts:[],events:[],sources:[],
+  research:{updatedAt:'',editorialSignature:'',northStar:'',firstParty:{organic:'',ads:'',warning:''},editorialAngles:[],contentMix:{},testedIdeas:[],noClaim:'',competitorPatterns:[],studyLinks:[],release:'',sourceOfTruth:''}
+ }
+}
+export const templates:Record<BrandId,WorkspaceData>={bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')};
 export const BRAND_INFO={
  bonas:{code:'BONAS',label:'BONAS-INC',person:'Sandrine Mamiafo',initial:'B',color:'#4768e8',light:'#eaf0ff',positioning:'Marketing digital · ateliers · histoires concrètes'},
  lzo:{code:'LZO',label:'LZO Empire',person:'Laurence Fedjou Zonfack',initial:'L',color:'#b37c51',light:'#fff1e5',positioning:'Découvrir · comprendre · choisir en confiance'}
