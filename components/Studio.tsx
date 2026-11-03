@@ -138,9 +138,13 @@ export default function Studio(){
    setSelectedWhatsappStage(route.stage||'2');
    setEditTab(route.tab||'contenu');
    setFilterWeek(route.week||'Toutes les semaines');
-   if(route.date){
-    setSelectedDate(route.date);
-    const date=new Date(route.date+'T12:00:00');
+   setFilterStatus(route.status && statuses.includes(route.status as Status)?route.status:'Tous les statuts');
+   setFilterChannel(route.channel && socialChannels.includes(route.channel)?route.channel:'Tous les canaux');
+   setCalendarMode(route.calendar==='week'?'Semaine':'Mois');
+   if(route.date)setSelectedDate(route.date);
+   const month=route.month||route.date?.slice(0,7);
+   if(month){
+    const date=new Date(month+'-01T12:00:00');
     if(!Number.isNaN(date.getTime()))setCalendarMonth(new Date(date.getFullYear(),date.getMonth(),1));
    }
    setMobileMenu(false);
@@ -164,15 +168,19 @@ export default function Studio(){
    media:view==='media'?selectedMediaId:undefined,
    script:view==='video'?selectedScript:undefined,
    date:view==='calendar'?selectedDate:undefined,
+   month:view==='calendar'?isoDate(calendarMonth).slice(0,7):undefined,
+   calendar:view==='calendar'?(calendarMode==='Semaine'?'week':'month'):undefined,
    tab:view==='editor'?editTab:undefined,
    event:view==='whatsapp'?selectedEventId:undefined,
    stage:view==='whatsapp'?selectedWhatsappStage:undefined,
-   week:view==='planning'||view==='campaigns'?filterWeek:undefined
+   week:view==='planning'||view==='kanban'||view==='campaigns'?filterWeek:undefined,
+   status:view==='planning'||view==='kanban'?filterStatus:undefined,
+   channel:view==='planning'||view==='kanban'?filterChannel:undefined
   },window.location.search);
   if(target!==window.location.search){
    window.history.pushState({zenithisStudio:true},'',window.location.pathname+target+window.location.hash);
   }
- },[routeHydrated,ready,access,brand,view,selectedPostId,selectedMediaId,selectedScript,selectedDate,editTab,selectedWhatsappStage,selectedEventId,filterWeek,onboardingMode]);
+ },[routeHydrated,ready,access,brand,view,selectedPostId,selectedMediaId,selectedScript,selectedDate,calendarMonth,calendarMode,editTab,selectedWhatsappStage,selectedEventId,filterWeek,filterStatus,filterChannel,onboardingMode]);
 
  useEffect(()=>{
   if(typeof window==='undefined')return;
