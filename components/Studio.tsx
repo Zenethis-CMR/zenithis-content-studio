@@ -28,7 +28,7 @@ const emptyMetrics={messages:0,qualified:0,registrations:0,attendees:0};
 const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:[],variants:[],media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
 const initialAll=():Record<BrandId,LocalWorkspace>=>({bonas:initialWorkspace('bonas'),lzo:initialWorkspace('lzo')});
 const nav:[View,string,React.ComponentType<{size?:number;strokeWidth?:number}>][]=[
- ['overview','Vue d’ensemble',LayoutDashboard],['planning','Programmation',CalendarClock],['calendar','Calendrier',CalendarDays],['kanban','Kanban éditorial',Columns3],['media','Médiathèque',Images],['editor','Éditeur de contenu',PenSquare],['video','Scripts vidéo',Video],['campaigns','Campagnes éditoriales',Megaphone],['whatsapp','WhatsApp & séminaires',MessageCircle],['insights','Analyses',ChartNoAxesCombined],['research','Veille & angles',Target],['sources','Sources & références',Library],['settings','Paramètres',Settings2]
+ ['overview','Vue d’ensemble',LayoutDashboard],['planning','Programmation',CalendarClock],['calendar','Calendrier',CalendarDays],['kanban','Kanban éditorial',Columns3],['media','Médiathèque',Images],['editor','Éditeur de contenu',PenSquare],['video','Scripts vidéo',Video],['campaigns','Campagnes éditoriales',Megaphone],['whatsapp','WhatsApp & séminaires',WhatsappMark],['insights','Analyses',ChartNoAxesCombined],['research','Veille & angles',Target],['sources','Sources & références',Library],['settings','Paramètres',Settings2]
 ];
 const socialIconByChannel:Record<string,React.ComponentType<{size?:number}>>={
  'Facebook':SiFacebook,'Instagram':SiInstagram,'TikTok':SiTiktok,'YouTube Shorts':SiYoutube,
@@ -71,6 +71,7 @@ function Channel({name,small=false}:{name:string;small?:boolean}){
  </span>;
 }
 function IconButton({children,onClick,title,className=''}:{children:React.ReactNode;onClick?:()=>void;title?:string;className?:string}){return <button type="button" onClick={onClick} title={title} className={'icon-btn '+className}>{children}</button>}
+function WhatsappMark({size=20}:{size?:number;strokeWidth?:number}){return <SiWhatsapp aria-hidden size={size} style={{color:'#25d366'}}/>}
 function MiniLine({values}:{values:number[]}){const mx=Math.max(1,...values);const pts=values.map((v,i)=>`${i*24},${38-(v/mx)*29}`).join(' ');return <svg className="mini-line" viewBox="0 0 168 44" aria-hidden="true"><polyline points={pts} fill="none" stroke="#3e76f7" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
 
 export default function Studio(){
@@ -438,7 +439,7 @@ export default function Studio(){
   editor:{title:'Éditeur de contenu',subtitle:'Affinez les textes et déclinaisons avant publication.',icon:PenSquare},
   video:{title:'Studio vidéo',subtitle:'Scripts, accroches, scènes et intentions de tournage.',icon:Video},
   campaigns:{title:'Campagnes éditoriales',subtitle:'Construisez des séquences cohérentes autour de vos objectifs.',icon:Megaphone},
-  whatsapp:{title:'WhatsApp & présentations',subtitle:'Organisez l’accueil et la première présentation collective.',icon:MessageCircle},
+  whatsapp:{title:'WhatsApp & présentations',subtitle:'Organisez l’accueil et la première présentation collective.',icon:WhatsappMark},
   insights:{title:'Analyses',subtitle:'Mesurez les étapes qui comptent vraiment.',icon:ChartNoAxesCombined},
   research:{title:'Veille concurrentielle & angles',subtitle:'Des observations vérifiables aux sujets réellement différenciants.',icon:Target},
   sources:{title:'Sources & veille',subtitle:'Références, preuves et inspirations documentées.',icon:Library},
@@ -531,7 +532,7 @@ export default function Studio(){
         {label:'Déclinaisons réseaux',n:stats.variants,desc:'Multi-canaux',icon:Layers,tone:'blue',target:'editor'},
         {label:'Scripts vidéo',n:stats.videos,desc:'Prêts à tourner',icon:Play,tone:'purple',target:'video'},
         {label:'Publications réalisées',n:stats.published,desc:`${stats.scheduled} programmées`,icon:CheckCheck,tone:'mint',target:'planning'},
-        {label:'Conversations qualifiées',n:ws.metrics.qualified,desc:'Saisie manuelle',icon:MessageCircle,tone:'orange',target:'insights'}
+        {label:'Conversations qualifiées',n:ws.metrics.qualified,desc:'Saisie manuelle',icon:WhatsappMark,tone:'orange',target:'insights'}
        ].map(m=><button type="button" className="metric-card navigable-block" key={m.label}
           onClick={()=>{if(m.label==='Publications réalisées')setFilterStatus('Publié');else setFilterStatus('Tous les statuts');setView(m.target as View)}}
           aria-label={'Ouvrir '+m.label}>
@@ -548,7 +549,7 @@ export default function Studio(){
      </div><div className="overview-aside"><div className="panel"><div className="panel-header"><div><h2>Focus de la semaine</h2><p>{info.label}</p></div><span className="focus-symbol"><Target size={21}/></span></div><div className="focus-card navigable-block" role="link" tabIndex={0}
  onClick={e=>activateBlock(e,()=>setView('campaigns'))}
  onKeyDown={e=>activateBlockKey(e,()=>setView('campaigns'))}>
- <div className="focus-small">TERRITOIRE ÉDITORIAL</div><h3>{raw.config.tagline}</h3><p>Créer une relation de confiance et inviter à la première présentation du modèle.</p><button onClick={()=>setView('campaigns')}>Voir le programme <ArrowRight size={15}/></button></div><div className="step-flow"><div><span>01</span> Contenu social</div><div><span>02</span> Conversation privée</div><div><span>03</span> Groupe WhatsApp</div><div><span>04</span> Présentation</div></div></div><div className="panel"><div className="panel-header"><div><h2>Accès rapide</h2><p>Votre espace de production</p></div></div><div className="quick-actions">{[['Calendrier',CalendarDays,'calendar'],['Scripts vidéo',Video,'video'],['Médiathèque',Images,'media'],['WhatsApp',MessageCircle,'whatsapp']].map(([label,Icon,target])=><button key={String(target)} onClick={()=>setView(target as View)}>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:20})}<span>{label as string}</span><ChevronRight size={15}/></button>)}</div></div></div></section>
+ <div className="focus-small">TERRITOIRE ÉDITORIAL</div><h3>{raw.config.tagline}</h3><p>Créer une relation de confiance et inviter à la première présentation du modèle.</p><button onClick={()=>setView('campaigns')}>Voir le programme <ArrowRight size={15}/></button></div><div className="step-flow"><div><span>01</span> Contenu social</div><div><span>02</span> Conversation privée</div><div><span>03</span> Groupe WhatsApp</div><div><span>04</span> Présentation</div></div></div><div className="panel"><div className="panel-header"><div><h2>Accès rapide</h2><p>Votre espace de production</p></div></div><div className="quick-actions">{[['Calendrier',CalendarDays,'calendar'],['Scripts vidéo',Video,'video'],['Médiathèque',Images,'media'],['WhatsApp',WhatsappMark,'whatsapp']].map(([label,Icon,target])=><button key={String(target)} onClick={()=>setView(target as View)}>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:20})}<span>{label as string}</span><ChevronRight size={15}/></button>)}</div></div></div></section>
     </>}
 
     {view==='planning'&&<section className="panel panel-no-padding"><div className="panel-header padded"><div><h2>File de programmation</h2><p>Planifier, réviser et marquer vos contenus comme publiés.</p></div><Badge tone="blue">{filtered.length} publications</Badge></div><div className="padded filter-line">{ToolbarFilters()}</div><div className="table-scroll"><table className="content-table detailed-table"><thead><tr><th>Contenu</th><th>Réseaux</th><th>Date</th><th>Étape</th><th>Statut</th><th>Action</th></tr></thead><tbody>{filtered.map(p=><tr key={p.id} tabIndex={0} className="navigable-table-row" title={'Ouvrir '+p.title}
@@ -569,7 +570,50 @@ export default function Studio(){
 
     {view==='campaigns'&&<><div className="campaign-intro panel"><div><Badge tone="purple">CAMPAGNE ÉDITORIALE · 8 SEMAINES</Badge><h2>{raw.config.tagline}</h2><p>Un parcours de contenus réguliers, de la découverte à la première présentation collective. Le tableau correspond au planning éditorial : aucune campagne publicitaire Meta n'est modifiée ici.</p></div><div className="campaign-stats"><span><b>{stats.posts}</b> publications</span><span><b>{stats.variants}</b> déclinaisons</span><span><b>{raw.events.length}</b> séquences WhatsApp</span></div></div><div className="campaign-weeks">{countsByWeek.map(w=><div key={w.week} className="panel campaign-week"><div className="campaign-week-head"><Badge tone="blue">{w.week}</Badge><strong>{w.planned} contenus</strong></div><h3>{w.week==='S1'?'Faire connaissance':w.week==='S2'?'Faire émerger les questions':w.week==='S3'?'Éduquer sans promesses':w.week==='S4'?'Explorer les objections':w.week==='S5'?'Présenter les étapes':w.week==='S6'?'Bâtir la confiance':w.week==='S7'?'Inviter à découvrir':'Consolider la communauté'}</h3><div className="campaign-week-items">{allPosts.filter(p=>p.week===w.week).sort(byDate).slice(0,5).map(p=><button onClick={()=>openEditor(p)} key={p.id}><span className="tiny-dot"/>{clean(p.title,50)}<ArrowUpRight size={14}/></button>)}</div><button className="text-link" onClick={()=>{setView('planning');setFilterStatus('Tous les statuts')}}>Ouvrir les contenus <ArrowRight size={14}/></button></div>)}</div></>}
 
-    {view==='whatsapp'&&<><div className="funnel-grid">{[['1','Conversation privée',MessageCircle],['2','Groupe commun',Users],['3','Présentation collective',CalendarCheck],['4','Suite avec la coach',UserRound]].map(([n,title,Icon])=><div className="panel funnel-card" key={String(n)}><span>{n as string}</span>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:28})}<strong>{title as string}</strong></div>)}</div><div className="panel"><div className="panel-header"><div><h2>Séquences d'accueil et de présentation</h2><p>Messages existants, prêts à adapter puis à envoyer manuellement.</p></div><a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-primary"><MessageCircle size={16}/> Ouvrir WhatsApp <ExternalLink size={13}/></a></div><div className="event-grid">{raw.events.map((evt:GroupEvent)=><article className="event-card" key={evt.id}><div className="event-head"><Badge tone="blue">{evt.week}</Badge><span>{shortDate(evt.date)}</span></div><h3>{evt.theme}</h3><div className="event-message"><span>MESSAGE D’INVITATION</span><p>{clean(evt.invitation,280)}</p></div><div className="event-controls"><button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Invitation</button><button onClick={()=>copyText(evt.reminder)}><Clock3 size={15}/> Rappel</button><button onClick={()=>copyText(evt.followUp)}><Send size={15}/> Suivi</button></div></article>)}</div></div><div className="panel whatsapp-disclaimer"><Info size={18}/><p>Les messages s’appuient sur vos dossiers, mais ils ne sont pas expédiés automatiquement. Les tarifs, témoignages et conditions de l'offre doivent être confirmés par les coachs avant communication.</p></div></>}
+    {view==='whatsapp'&&<>
+     <div className="funnel-grid" aria-label="Parcours WhatsApp">
+      {[
+       {id:'1' as const,title:'Conversation privée',Icon:WhatsappMark},
+       {id:'2' as const,title:'Groupe commun',Icon:WhatsappMark},
+       {id:'3' as const,title:'Présentation collective',Icon:CalendarCheck},
+       {id:'4' as const,title:'Suite avec la coach',Icon:UserRound}
+      ].map(({id,title,Icon})=><button type="button" className={'panel funnel-card navigable-block '+(selectedWhatsappStage===id?'funnel-card-active':'')}
+        key={id} aria-pressed={selectedWhatsappStage===id} aria-label={'Voir les messages : '+title}
+        onClick={()=>goToWhatsApp(id)}>
+        <span>{id}</span><Icon size={28}/><strong>{title}</strong><ArrowRight className="funnel-arrow" size={15}/>
+      </button>)}
+     </div>
+     <div className="panel" id="studio-whatsapp-sequences">
+      <div className="panel-header">
+       <div><h2>Séquences d'accueil et de présentation</h2><p>{selectedWhatsappStage==='1'?'Messages d’accueil pour les conversations privées':selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
+       {raw.config.whatsapp?.startsWith('https://')?
+        <a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-whatsapp"><SiWhatsapp size={19}/> Ouvrir WhatsApp <ExternalLink size={13}/></a>:
+        <button type="button" className="btn btn-whatsapp" onClick={()=>notify('Lien WhatsApp non configuré pour cette marque','warning')}><SiWhatsapp size={19}/> Configurer WhatsApp</button>}
+      </div>
+      <div className="event-grid">
+       {raw.events.map((evt:GroupEvent)=>{
+        const msg=selectedWhatsappStage==='1'?(evt.greeting||evt.invitation):selectedWhatsappStage==='2'?evt.invitation:selectedWhatsappStage==='3'?evt.reminder:evt.followUp;
+        const label=selectedWhatsappStage==='1'?'MESSAGE D’ACCUEIL':selectedWhatsappStage==='2'?'MESSAGE D’INVITATION':selectedWhatsappStage==='3'?'RAPPEL DE PRÉSENTATION':'MESSAGE DE SUIVI';
+        const expanded=selectedEventId===evt.id;
+        return <article className={'event-card navigable-block '+(expanded?'event-card-active':'')} key={evt.id}
+          role="button" tabIndex={0} aria-expanded={expanded} aria-label={'Afficher la séquence '+evt.theme}
+          onClick={e=>activateBlock(e,()=>setSelectedEventId(expanded?'':evt.id))}
+          onKeyDown={e=>activateBlockKey(e,()=>setSelectedEventId(expanded?'':evt.id))}>
+          <div className="event-head"><Badge tone="blue">{evt.week}</Badge><span>{shortDate(evt.date)}</span><ChevronDown size={17} className={expanded?'workspace-chevron-open':''}/></div>
+          <h3>{evt.theme}</h3>
+          <div className="event-message"><span>{label}</span><p>{expanded?msg:clean(msg,280)}</p></div>
+          {expanded&&<div className="event-expanded"><strong>Suite du parcours</strong><p>{evt.flow||evt.condition||'Adapter le message et assurer le suivi personnalisé.'}</p><small>Copiez les messages avec les commandes ci-dessous.</small></div>}
+          <div className="event-controls">
+           <button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Invitation</button>
+           <button onClick={()=>copyText(evt.reminder)}><Clock3 size={15}/> Rappel</button>
+           <button onClick={()=>copyText(evt.followUp)}><Send size={15}/> Suivi</button>
+          </div>
+         </article>;
+       })}
+      </div>
+     </div>
+     <div className="panel whatsapp-disclaimer"><Info size={18}/><p>Les messages sont préparés pour un envoi manuel. Les tarifs, témoignages et conditions commerciales doivent être vérifiés avant communication.</p></div>
+    </>}
 
     {view==='insights'&&<><div className="metrics-grid insights-metrics">{[['Messages reçus','messages',MessageCircle],['Conversations qualifiées','qualified',BadgeCheck],['Inscriptions','registrations',CalendarCheck],['Participants','attendees',Users]].map(([label,key,Icon])=><div className="metric-card metric-input" key={String(key)}><div className="metric-top"><span>{label as string}</span>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:19})}</div><input type="number" min="0" value={ws.metrics[key as keyof typeof ws.metrics]} onChange={e=>modifyWs(brand,w=>({...w,metrics:{...w.metrics,[key as string]:Math.max(0,Number(e.target.value)||0)}}))}/><p>À renseigner manuellement</p></div>)}</div><div className="analytics-layout"><section className="panel"><div className="panel-header"><div><h2>Entonnoir de conversion</h2><p>Des conversations aux participants</p></div><Badge tone="mint">Saisie locale</Badge></div>{[['Messages reçus',ws.metrics.messages],['Conversations qualifiées',ws.metrics.qualified],['Inscriptions',ws.metrics.registrations],['Participants',ws.metrics.attendees]].map(([title,val])=><div className="funnel-line" key={String(title)}><span>{String(title)}</span><div className="track"><div style={{width:`${Math.min(100,Number(val)/Math.max(1,ws.metrics.messages)*100)}%`}}/></div><strong>{Number(val).toLocaleString('fr-FR')}</strong></div>)}<div className="stats-footnote"><Info size={15}/> Ces statistiques ne sont pas synchronisées avec Meta Ads ni WhatsApp Business.</div></section><section className="panel"><div className="panel-header"><div><h2>Votre taux de qualification</h2><p>Calcul sur les saisies de l'équipe</p></div></div><div className="conversion-ring" style={{'--pct':`${Math.min(100,Math.round(ws.metrics.qualified/Math.max(1,ws.metrics.messages)*100))}%`} as React.CSSProperties}><div><strong>{ws.metrics.messages?Math.round(ws.metrics.qualified/ws.metrics.messages*100):0}%</strong><span>Qualifiés / messages</span></div></div><div className="detail-line"><span>Taux de participation</span><strong>{ws.metrics.registrations?Math.round(ws.metrics.attendees/ws.metrics.registrations*100):0}%</strong></div></section></div></>}
 
