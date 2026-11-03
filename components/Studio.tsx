@@ -34,7 +34,21 @@ const socialIconByChannel:Record<string,React.ComponentType<{size?:number}>>={
  'YouTube':SiYoutube,'LinkedIn':SiLinkedin,'Pinterest':SiPinterest,
  'WhatsApp':SiWhatsapp,'Threads':SiThreads
 };
-const channelClass=(s:string)=>s.toLowerCase().replace(/\s+/g,'-');
+// Toutes les variantes de format d'un réseau réutilisent le même logo officiel.
+// Exemple : "Facebook Reels" et "Facebook Stories" affichent le logo Facebook.
+const canonicalNetwork=(value:string):string=>{
+ const normalized=value.trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[\\s_-]+/g,' ');
+ if(normalized.startsWith('facebook')||normalized==='fb')return 'Facebook';
+ if(normalized.startsWith('instagram')||normalized==='insta')return 'Instagram';
+ if(normalized.startsWith('tiktok')||normalized.startsWith('tik tok'))return 'TikTok';
+ if(normalized.startsWith('youtube')||normalized.startsWith('you tube'))return 'YouTube';
+ if(normalized.startsWith('linkedin'))return 'LinkedIn';
+ if(normalized.startsWith('pinterest'))return 'Pinterest';
+ if(normalized.startsWith('whatsapp')||normalized.startsWith('whats app'))return 'WhatsApp';
+ if(normalized.startsWith('threads'))return 'Threads';
+ return '';
+};
+const channelClass=(value:string)=>canonicalNetwork(value).toLowerCase().replace(/\s+/g,'-')||'other';
 const statusClass=(s:string)=>{
  const v=normalizeStatus(s);return v==='Publié'?'success':v==='Programmé'?'blue':v==='À valider'?'purple':v==='En rédaction'?'orange':v==='Idée'?'neutral':'gray';
 };
@@ -48,9 +62,11 @@ const monthGrid=(date:Date)=>{
 const clean=(str:string,max=130)=>str.length>max?str.slice(0,max-1)+'…':str;
 function Badge({children,tone='blue'}:{children:React.ReactNode,tone?:string}){return <span className={'pill pill-'+tone}>{children}</span>}
 function Channel({name,small=false}:{name:string;small?:boolean}){
- const Icon=socialIconByChannel[name];
- return <span title={name} aria-label={name} className={'channel channel-'+channelClass(name)+(small?' channel-mini':'')}>
-  {Icon?<Icon size={small?17:21}/>:<span>{name.slice(0,1)}</span>}
+ const network=canonicalNetwork(name);
+ const Icon=socialIconByChannel[network];
+ return <span title={name} aria-label={name} data-network={network||'other'}
+  className={'channel channel-'+channelClass(name)+(small?' channel-mini':'')}>
+  {Icon?<Icon aria-hidden size={small?17:21}/>:<Megaphone aria-hidden size={small?15:18}/>}
  </span>;
 }
 function IconButton({children,onClick,title,className=''}:{children:React.ReactNode;onClick?:()=>void;title?:string;className?:string}){return <button type="button" onClick={onClick} title={title} className={'icon-btn '+className}>{children}</button>}
