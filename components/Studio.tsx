@@ -701,7 +701,7 @@ export default function Studio(){
        </article>)}
       </div>
      </section>
-     {selectedWhatsappStage!=='1'&&<div className="panel" id="studio-whatsapp-events">
+     {selectedWhatsappStage==='2'&&<div className="panel" id="studio-whatsapp-events">
       <div className="panel-header">
        <div><h2>Messages spécifiques aux présentations</h2><p>{selectedWhatsappStage==='2'?'Messages d’invitation au groupe':selectedWhatsappStage==='3'?'Rappels pour les présentations collectives':'Messages de suivi après les présentations'}</p></div>
        {raw.config.whatsapp?.startsWith('https://')?
@@ -710,8 +710,8 @@ export default function Studio(){
       </div>
       <div className="event-grid">
        {raw.events.map((evt:GroupEvent)=>{
-        const msg=selectedWhatsappStage==='2'?evt.invitation:selectedWhatsappStage==='3'?evt.reminder:evt.followUp;
-        const label=selectedWhatsappStage==='2'?'MESSAGE D’INVITATION':selectedWhatsappStage==='3'?'RAPPEL DE PRÉSENTATION':'MESSAGE DE SUIVI';
+        const msg=evt.invitation;
+        const label='INVITATION SPÉCIFIQUE À CETTE PRÉSENTATION';
         const expanded=selectedEventId===evt.id;
         return <article className={'event-card navigable-block '+(expanded?'event-card-active':'')} key={evt.id}
           role="button" tabIndex={0} aria-expanded={expanded} aria-label={'Afficher la séquence '+evt.theme}
@@ -722,9 +722,7 @@ export default function Studio(){
           <div className="event-message"><span>{label}</span><p>{expanded?msg:clean(msg,280)}</p></div>
           {expanded&&<div className="event-expanded"><strong>Suite du parcours</strong><p>{evt.flow||evt.condition||'Adapter le message et assurer le suivi personnalisé.'}</p><small>Copiez les messages avec les commandes ci-dessous.</small></div>}
           <div className="event-controls">
-           <button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Invitation</button>
-           <button onClick={()=>copyText(evt.reminder)}><Clock3 size={15}/> Rappel</button>
-           <button onClick={()=>copyText(evt.followUp)}><Send size={15}/> Suivi</button>
+           <button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Copier cette invitation</button>
           </div>
          </article>;
        })}
