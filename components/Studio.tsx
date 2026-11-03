@@ -18,6 +18,9 @@ import { BRAND_INFO, templates, createPosts, seededMedia, statuses, normalizeSta
 
 type Toast = { message: string; kind?: 'success' | 'info' | 'warning' } | null;
 type LocalWorkspace = PersistentWorkspace;
+type BrandRole = 'owner' | 'editor' | 'viewer';
+type AccessState = {isSuperadmin:boolean;roles:Partial<Record<BrandId,BrandRole>>;allowedBrands:BrandId[]};
+type GrantRow = {email:string;brand_id:BrandId;role:BrandRole;created_at?:string};
 const emptyMetrics={messages:0,qualified:0,registrations:0,attendees:0};
 const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:createPosts(id),variants:templates[id].variants.map(x=>({...x})),media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
 const initialAll=():Record<BrandId,LocalWorkspace>=>({bonas:initialWorkspace('bonas'),lzo:initialWorkspace('lzo')});
@@ -51,6 +54,12 @@ export default function Studio(){
  const [authEmail,setAuthEmail]=useState('');
  const [authMessage,setAuthMessage]=useState('');
  const [authLoading,setAuthLoading]=useState(true);
+ const [access,setAccess]=useState<AccessState|null>(null);
+ const [grantRows,setGrantRows]=useState<GrantRow[]>([]);
+ const [inviteEmail,setInviteEmail]=useState('');
+ const [inviteBrand,setInviteBrand]=useState<BrandId>('bonas');
+ const [inviteRole,setInviteRole]=useState<BrandRole>('editor');
+ const [inviteBusy,setInviteBusy]=useState(false);
  const [dbMessage,setDbMessage]=useState('Connexion à la base…');
  const [dbProblem,setDbProblem]=useState('');
  const versionRef=useRef<Record<BrandId,number>>({bonas:0,lzo:0});
@@ -93,34 +102,62 @@ export default function Studio(){
   return()=>{active=false;subscription.unsubscribe()}
  },[]);
  useEffect(()=>{
-  if(!studioClient||!user){setReady(false);return}
+  if(!studioClient||!user){setReady(false);setAccess(null);return}
   let active=true;
   const load=async()=>{
-   setReady(false);setDbProblem('');setDbMessage('Chargement des espaces Supabase…');
+   setReady(false);setAccess(null);setDbProblem('');setDbMessage('Vérification des autorisations…');
    try{
+    const email=(user.email||'').trim().toLowerCase();
+    if(!email)throw new Error('Le compte connecté ne possède pas d’adresse e-mail vérifiée.');
+    const [admins,brands]=await Promise.all([
+      studioClient!.from('studio_superadmins').select('email').eq('email',email).maybeSingle(),
+      studioClient!.from('studio_brand_access').select('brand_id,role').eq('email',email)
+    ]);
+    if(admins.error)throw admins.error;
+    if(brands.error)throw brands.error;
+    const roles:Partial<Record<BrandId,BrandRole>>={};
+    for(const item of brands.data||[]){
+      if((item.brand_id==='bonas'||item.brand_id==='lzo')&&
+         (item.role==='owner'||item.role==='editor'||item.role==='viewer'))roles[item.brand_id]=item.role;
+    }
+    const isSuperadmin=!!admins.data;
+    const allowedBrands:BrandId[]=isSuperadmin?['bonas','lzo']:(['bonas','lzo'] as BrandId[]).filter(id=>!!roles[id]);
+    if(!active)return;
+    setAccess({isSuperadmin,roles,allowedBrands});
+    if(allowedBrands.length===0){
+      setDbProblem('Aucun espace ne vous a encore été attribué. Demandez une invitation au propriétaire de la marque ou au super-administrateur.');
+      return;
+    }
     const local=typeof window==='undefined'?null:window.localStorage.getItem('zenithis-studio-v2');
-    let previous:Record<BrandId,LocalWorkspace>|null=null;
+    let previous:Partial<Record<BrandId,LocalWorkspace>>|null=null;
     try{previous=local?JSON.parse(local):null}catch{}
-    const records=await Promise.all((['bonas','lzo'] as BrandId[]).map(async id=>{
-      const seed=previous?.[id]?.posts?.length?previous[id]:initialWorkspace(id);
+    const records=await Promise.all(allowedBrands.map(async id=>{
+      const seed=previous?.[id]?.posts?.length?previous[id]!:initialWorkspace(id);
       const record=await readWorkspace(id,seed,user.id);
       return {id,...record};
     }));
     if(!active)return;
-    const next={bonas:records[0].data,lzo:records[1].data};
+    const next=initialAll();
     for(const record of records){
+      next[record.id]=record.data;
       versionRef.current[record.id]=record.version;
       snapshotRef.current[record.id]=JSON.stringify(encodeWorkspace(record.data));
     }
-    setWorkspaces(next);setReady(true);setDbMessage('Connecté à Supabase · données persistantes');
-   }catch(e){if(active){setDbProblem(e instanceof Error?e.message:String(e));setDbMessage('Connexion à la base impossible')}}
+    setBrand(prev=>allowedBrands.includes(prev)?prev:allowedBrands[0]);
+    setWorkspaces(next);
+    setReady(true);
+    setDbMessage('Supabase connecté · accès limités à vos marques');
+   }catch(e){
+    if(active){setDbProblem(e instanceof Error?e.message:String(e));setDbMessage('Connexion ou autorisation impossible')}
+   }
   };
   void load();return()=>{active=false}
  },[user?.id]);
  useEffect(()=>{
-  if(!ready||!user||!studioClient)return;
+  if(!ready||!user||!studioClient||!access)return;
   const timeouts:Array<ReturnType<typeof setTimeout>>=[];
-  for(const id of ['bonas','lzo'] as BrandId[]){
+  for(const id of access.allowedBrands){
+    if(!access.isSuperadmin && access.roles[id]==='viewer')continue;
     const value=workspaces[id];
     const serialized=JSON.stringify(encodeWorkspace(value));
     if(serialized===snapshotRef.current[id])continue;
@@ -141,7 +178,7 @@ export default function Studio(){
     },900));
   }
   return()=>timeouts.forEach(clearTimeout);
- },[workspaces,ready,user?.id]);
+ },[workspaces,ready,user?.id,access]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t)},[toast]);
  const info=BRAND_INFO[brand], raw=templates[brand], ws=workspaces[brand];
  const allPosts=ws.posts;
@@ -158,17 +195,42 @@ export default function Studio(){
  const stats={posts:allPosts.length,variants:ws.variants.length,videos:raw.scripts.length,published:pipeline.find(x=>x.name==='Publié')?.count||0,scheduled:pipeline.find(x=>x.name==='Programmé')?.count||0};
  const countsByWeek=useMemo(()=>Array.from({length:8},(_,i)=>{const week=`S${i+1}`;return {week,planned:allPosts.filter(p=>p.week===week).length,published:allPosts.filter(p=>p.week===week&&normalizeStatus(p.status)==='Publié').length}}),[allPosts]);
  const notify=(message:string,kind:'success'|'info'|'warning'='success')=>setToast({message,kind});
- const switchBrand=(id:BrandId)=>{setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
- const modifyWs=(id:BrandId,fn:(p:LocalWorkspace)=>LocalWorkspace)=>setWorkspaces(old=>({...old,[id]:fn(old[id])}));
+ const switchBrand=(id:BrandId)=>{if(!access?.allowedBrands.includes(id)){notify('Accès à cette marque non autorisé','warning');return}setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
+ const canEdit=(id:BrandId)=>!!access && access.allowedBrands.includes(id) && (access.isSuperadmin || access.roles[id]!=='viewer');
+ const canManage=(id:BrandId)=>!!access && access.allowedBrands.includes(id) && (access.isSuperadmin || access.roles[id]==='owner');
+ const modifyWs=(id:BrandId,fn:(p:LocalWorkspace)=>LocalWorkspace)=>{
+  if(!canEdit(id)){notify('Accès en lecture seule','warning');return}
+  setWorkspaces(old=>({...old,[id]:fn(old[id])}));
+ };
  const updatePost=(id:string,patch:Partial<ContentPost>)=>{modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===id?{...p,...patch}:p)}));notify('Contenu mis à jour dans cet espace de travail')};
  const updateVariant=(id:string,patch:Partial<ChannelVariant>)=>{modifyWs(brand,w=>({...w,variants:w.variants.map(v=>v.id===id?{...v,...patch}:v)}));notify('Déclinaison enregistrée')};
  const jumpToPost=(id:string,where:View='editor')=>{setSelectedPostId(id);setEditorDraft({});setEditTab('contenu');setView(where);setMobileMenu(false)};
- const exportBackup=()=>{downloadJson({version:1,exportedAt:new Date().toISOString(),workspaces},'zenithis-studio-sauvegarde.json');notify('Sauvegarde JSON téléchargée')};
- const importBackup=async(file:File|undefined)=>{if(!file||!user)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj?.workspaces?.bonas?.posts||!obj?.workspaces?.lzo?.posts)throw new Error('Format incompatible');setWorkspaces(obj.workspaces);notify('Sauvegarde restaurée')}catch{notify('Le fichier n’est pas une sauvegarde compatible','warning')}};
+ const exportBackup=()=>{
+  if(!access)return;
+  const permitted=Object.fromEntries(access.allowedBrands.map(id=>[id,workspaces[id]]));
+  downloadJson({version:2,exportedAt:new Date().toISOString(),workspaces:permitted},'zenithis-studio-sauvegarde.json');
+  notify('Sauvegarde des espaces autorisés téléchargée')
+ };
+ const importBackup=async(file:File|undefined)=>{
+  if(!file||!user||!access)return;
+  try{
+    const obj=JSON.parse(await file.text());
+    const entries=access.allowedBrands.filter(id=>canEdit(id)&&obj?.workspaces?.[id]?.posts?.length);
+    if(!entries.length)throw new Error('Aucune marque autorisée dans la sauvegarde');
+    setWorkspaces(old=>{
+      const next={...old};
+      for(const id of entries)next[id]=obj.workspaces[id];
+      return next;
+    });
+    notify('Sauvegarde restaurée pour '+entries.map(id=>BRAND_INFO[id].label).join(', '))
+  }catch(e){notify('Import refusé : '+(e instanceof Error?e.message:String(e)),'warning')}
+ };
  const addPost=()=>{
+  if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
   const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'PLAN B':'MON APRÈS',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Écris PLAN B':'Écris AVENIR',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
  const mediaUpload=async(file:File|undefined)=>{
   if(!file||!user||!studioClient)return;
+  if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
   setDbMessage('Envoi du fichier dans Supabase Storage…');
   try{
     const asset=await uploadStudioMedia(file,brand);
