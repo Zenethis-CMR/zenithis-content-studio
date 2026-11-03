@@ -9,7 +9,7 @@ import {
   Eye, Send, FileText, Play, MoreHorizontal, Sparkles, LayoutGrid, List, Menu,
   Bookmark, Pencil, Trash2, MoveRight, Target, TrendingUp, ArrowRight, Activity,
   MapPin, ClipboardCheck, Info, RotateCcw, CircleAlert, SlidersHorizontal, Link2, LogOut,
-  FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
+  FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb, Film,
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle, Mail
 } from 'lucide-react';
 import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
