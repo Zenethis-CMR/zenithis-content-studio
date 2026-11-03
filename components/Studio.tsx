@@ -13,6 +13,7 @@ import {
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
 } from 'lucide-react';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace } from '@/lib/types';
+import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace } from '@/lib/studio-db';
 import { BRAND_INFO, templates, createPosts, seededMedia, statuses, normalizeStatus, labelForType, asDate, longDate, shortDate, byDate, socialChannels, downloadJson } from '@/lib/data';
 
 type Toast = { message: string; kind?: 'success' | 'info' | 'warning' } | null;
@@ -46,6 +47,15 @@ export default function Studio(){
  const [view,setView]=useState<View>('overview');
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
  const [ready,setReady]=useState(false);
+ const [user,setUser]=useState<{id:string;email?:string}|null>(null);
+ const [authEmail,setAuthEmail]=useState('');
+ const [authMessage,setAuthMessage]=useState('');
+ const [authLoading,setAuthLoading]=useState(true);
+ const [dbMessage,setDbMessage]=useState('Connexion à la base…');
+ const [dbProblem,setDbProblem]=useState('');
+ const versionRef=useRef<Record<BrandId,number>>({bonas:0,lzo:0});
+ const snapshotRef=useRef<Record<BrandId,string>>({bonas:'',lzo:''});
+ const pendingWrites=useRef<Record<BrandId,Promise<void>>>({bonas:Promise.resolve(),lzo:Promise.resolve()});
  const [search,setSearch]=useState('');
  const [filterStatus,setFilterStatus]=useState('Tous les statuts');
  const [filterChannel,setFilterChannel]=useState('Tous les canaux');
@@ -67,38 +77,71 @@ export default function Studio(){
  const fileInput=useRef<HTMLInputElement>(null);
  const importInput=useRef<HTMLInputElement>(null);
 
+
  useEffect(()=>{
-  try {
-   const saved=window.localStorage.getItem('zenithis-studio-v2');
-   if(saved){
-    const parsed=JSON.parse(saved) as Record<BrandId,LocalWorkspace>;
-    setWorkspaces(old=>({
-     bonas:{...old.bonas,...parsed.bonas,metrics:{...emptyMetrics,...parsed.bonas?.metrics}},
-     lzo:{...old.lzo,...parsed.lzo,metrics:{...emptyMetrics,...parsed.lzo?.metrics}}
-    }));
-   } else {
-    // Editorial migration: replace the V1 stock copy with the researched V2 release,
-    // retain the user's scheduling, manual KPI entries, uploaded images and custom posts.
-    const legacy=window.localStorage.getItem('zenithis-studio-v1');
-    if(legacy){
-     const previous=JSON.parse(legacy) as Record<BrandId,LocalWorkspace>;
-     const migrate=(id:BrandId):LocalWorkspace=>{
-      const fresh=initialWorkspace(id),old=previous[id];if(!old)return fresh;
-      const priorById=new Map((old.posts||[]).map(x=>[x.id,x]));
-      const posts=fresh.posts.map(p=>{
-       const prev=priorById.get(p.id);
-       return prev?{...p,date:prev.date||p.date,time:prev.time||p.time,status:prev.status||p.status}:p;
-      });
-      for(const oldPost of old.posts||[])if(!posts.some(p=>p.id===oldPost.id))posts.push(oldPost);
-      return {...fresh,posts,metrics:{...emptyMetrics,...old.metrics},media:old.media?.length?old.media:fresh.media,notes:old.notes||''};
-     };
-     setWorkspaces({bonas:migrate('bonas'),lzo:migrate('lzo')});
-    }
-   }
-  }catch(e){console.warn('Impossible de restaurer le brouillon local',e)}
-  setReady(true);
+  if(!studioClient){setAuthLoading(false);return}
+  const client=studioClient;
+  let active=true;
+  const refresh=async()=>{
+   const {data,error}=await client.auth.getUser();
+   if(active){setUser(error?null:(data.user?{id:data.user.id,email:data.user.email}:null));setAuthLoading(false)}
+  };
+  void refresh();
+  const {data:{subscription}}=client.auth.onAuthStateChange((_event,session)=>{
+   if(active){setUser(session?.user?{id:session.user.id,email:session.user.email}:null);setAuthLoading(false)}
+  });
+  return()=>{active=false;subscription.unsubscribe()}
  },[]);
- useEffect(()=>{if(!ready)return;try{window.localStorage.setItem('zenithis-studio-v2',JSON.stringify(workspaces));}catch{setToast({message:'Stockage local saturé : exportez une sauvegarde.',kind:'warning'})}},[ready,workspaces]);
+ useEffect(()=>{
+  if(!studioClient||!user){setReady(false);return}
+  let active=true;
+  const load=async()=>{
+   setReady(false);setDbProblem('');setDbMessage('Chargement des espaces Supabase…');
+   try{
+    const local=typeof window==='undefined'?null:window.localStorage.getItem('zenithis-studio-v2');
+    let previous:Record<BrandId,LocalWorkspace>|null=null;
+    try{previous=local?JSON.parse(local):null}catch{}
+    const records=await Promise.all((['bonas','lzo'] as BrandId[]).map(async id=>{
+      const seed=previous?.[id]?.posts?.length?previous[id]:initialWorkspace(id);
+      const record=await readWorkspace(id,seed,user.id);
+      return {id,...record};
+    }));
+    if(!active)return;
+    const next={bonas:records[0].data,lzo:records[1].data};
+    for(const record of records){
+      versionRef.current[record.id]=record.version;
+      snapshotRef.current[record.id]=JSON.stringify(encodeWorkspace(record.data));
+    }
+    setWorkspaces(next);setReady(true);setDbMessage('Connecté à Supabase · données persistantes');
+   }catch(e){if(active){setDbProblem(e instanceof Error?e.message:String(e));setDbMessage('Connexion à la base impossible')}}
+  };
+  void load();return()=>{active=false}
+ },[user?.id]);
+ useEffect(()=>{
+  if(!ready||!user||!studioClient)return;
+  const timeouts:Array<ReturnType<typeof setTimeout>>=[];
+  for(const id of ['bonas','lzo'] as BrandId[]){
+    const value=workspaces[id];
+    const serialized=JSON.stringify(encodeWorkspace(value));
+    if(serialized===snapshotRef.current[id])continue;
+    setDbMessage('Modifications en cours de synchronisation…');
+    timeouts.push(setTimeout(()=>{
+      pendingWrites.current[id]=pendingWrites.current[id].catch(()=>{}).then(async()=>{
+        const latest=JSON.stringify(encodeWorkspace(value));
+        if(latest===snapshotRef.current[id])return;
+        try{
+          const v=await saveWorkspace(id,value,versionRef.current[id],user.id);
+          versionRef.current[id]=v;snapshotRef.current[id]=latest;
+          setDbProblem('');setDbMessage('Toutes les modifications sont enregistrées dans Supabase');
+        }catch(e){
+          const message=e instanceof Error?e.message:String(e);
+          setDbProblem(message);setDbMessage('Erreur de sauvegarde · veuillez exporter une copie');
+        }
+      });
+    },900));
+  }
+  return()=>timeouts.forEach(clearTimeout);
+ },[workspaces,ready,user?.id]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t)},[toast]);
  const info=BRAND_INFO[brand], raw=templates[brand], ws=workspaces[brand];
  const allPosts=ws.posts;
@@ -121,10 +164,18 @@ export default function Studio(){
  const updateVariant=(id:string,patch:Partial<ChannelVariant>)=>{modifyWs(brand,w=>({...w,variants:w.variants.map(v=>v.id===id?{...v,...patch}:v)}));notify('Déclinaison enregistrée')};
  const jumpToPost=(id:string,where:View='editor')=>{setSelectedPostId(id);setEditorDraft({});setEditTab('contenu');setView(where);setMobileMenu(false)};
  const exportBackup=()=>{downloadJson({version:1,exportedAt:new Date().toISOString(),workspaces},'zenithis-studio-sauvegarde.json');notify('Sauvegarde JSON téléchargée')};
- const importBackup=async(file:File|undefined)=>{if(!file)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj?.workspaces?.bonas?.posts||!obj?.workspaces?.lzo?.posts)throw new Error('Format incompatible');setWorkspaces(obj.workspaces);notify('Sauvegarde restaurée')}catch{notify('Le fichier n’est pas une sauvegarde compatible','warning')}};
+ const importBackup=async(file:File|undefined)=>{if(!file||!user)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj?.workspaces?.bonas?.posts||!obj?.workspaces?.lzo?.posts)throw new Error('Format incompatible');setWorkspaces(obj.workspaces);notify('Sauvegarde restaurée')}catch{notify('Le fichier n’est pas une sauvegarde compatible','warning')}};
  const addPost=()=>{
   const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'PLAN B':'MON APRÈS',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Écris PLAN B':'Écris AVENIR',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
- const mediaUpload=(file:File|undefined)=>{if(!file)return;if(!file.type.startsWith('image/')){notify('Pour ce prototype, seuls les visuels sont importables dans le navigateur','warning');return}if(file.size>1_500_000){notify('Image trop volumineuse pour le stockage local (1,5 Mo maximum)','warning');return}const fr=new FileReader();fr.onload=()=>{const m:MediaAsset={id:'custom-'+Date.now(),name:file.name,brand,kind:'Image',src:String(fr.result),format:file.type.replace('image/','').toUpperCase(),created:isoDate(new Date()),size:`${Math.round(file.size/1024)} Ko`};modifyWs(brand,w=>({...w,media:[m,...w.media]}));notify('Image ajoutée à la médiathèque locale')};fr.readAsDataURL(file)};
+ const mediaUpload=async(file:File|undefined)=>{
+  if(!file||!user||!studioClient)return;
+  setDbMessage('Envoi du fichier dans Supabase Storage…');
+  try{
+    const asset=await uploadStudioMedia(file,brand);
+    modifyWs(brand,w=>({...w,media:[asset,...w.media]}));
+    notify('Fichier téléversé dans Supabase Storage et ajouté à la médiathèque');
+  }catch(e){notify('Échec du téléversement : '+(e instanceof Error?e.message:String(e)),'warning')}
+ };
  const copyText=(text:string)=>{navigator.clipboard?.writeText(text).then(()=>notify('Texte copié')).catch(()=>notify('Copie indisponible dans ce navigateur','warning'))};
  const openEditor=(post:ContentPost)=>jumpToPost(post.id);
  const weekDates=useMemo(()=>{const d=asDate(selectedDate);const day=(d.getDay()+6)%7;const monday=new Date(d);monday.setDate(d.getDate()-day);return Array.from({length:7},(_,i)=>{const x=new Date(monday);x.setDate(monday.getDate()+i);return x})},[selectedDate]);
@@ -155,7 +206,26 @@ export default function Studio(){
  </article>;
  const ToolbarFilters=()=> <div className="toolbar-filters"><div className="inline-search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un contenu..." aria-label="Rechercher un contenu"/></div><select aria-label="Statut" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option>Tous les statuts</option>{statuses.map(s=><option key={s}>{s}</option>)}</select><select aria-label="Canal" value={filterChannel} onChange={e=>setFilterChannel(e.target.value)}><option>Tous les canaux</option>{socialChannels.map(c=><option key={c}>{c}</option>)}</select><span className="muted little">{filtered.length} contenus</span></div>;
 
+
+ const authPanel:React.CSSProperties={minHeight:'100vh',display:'grid',placeItems:'center',background:'#f3f6ff',padding:'24px'};
+ const authCard:React.CSSProperties={maxWidth:550,width:'100%',background:'#fff',borderRadius:20,padding:32,boxShadow:'0 12px 45px #1525561c',color:'#14204c'};
+ if(!studioClient)return <main style={authPanel}><div style={authCard}><h1>Zenithis Content Studio</h1><h2>Base de données non configurée</h2><p>La sauvegarde locale a été désactivée pour ne plus annoncer de faux enregistrements. Ajoutez NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY dans Vercel puis appliquez la migration SQL Supabase.</p><p>Le compte doit être autorisé dans studio_members. Les données restent protégées par RLS.</p></div></main>;
+ if(authLoading)return <main style={authPanel}><div style={authCard}>Vérification de la session…</div></main>;
+ if(!user)return <main style={authPanel}><form style={authCard} onSubmit={async e=>{
+  e.preventDefault();if(!studioClient||!authEmail.trim())return;
+  const {error}=await studioClient.auth.signInWithOtp({email:authEmail.trim(),options:{emailRedirectTo:window.location.origin}});
+  setAuthMessage(error?'Connexion refusée : '+error.message:'Lien de connexion envoyé. Ouvrez votre boîte mail.');
+ }}>
+ <h1>Zenithis Content Studio</h1><p>Connexion sécurisée pour accéder aux espaces BONAS-INC et LZO Empire.</p>
+ <label htmlFor="studio-email">Adresse e-mail</label>
+ <input id="studio-email" required type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} style={{display:'block',width:'100%',padding:14,border:'1px solid #ccd6ed',borderRadius:10,margin:'12px 0'}} />
+ <button className="btn btn-primary" type="submit">Recevoir mon lien de connexion</button><p role="status">{authMessage}</p>
+ </form></main>;
+ if(!ready)return <main style={authPanel}><div style={authCard}><h2>Chargement des données</h2><p>{dbProblem||dbMessage}</p>
+ {dbProblem&&<><p>Vérifiez la migration SQL et les autorisations studio_members du compte {user.email}.</p><button className="btn btn-outline" onClick={()=>studioClient?.auth.signOut()}>Changer de compte</button></>}
+ </div></main>;
  return <div className="studio-shell" style={{'--brand-accent':info.color,'--brand-light':info.light} as React.CSSProperties}>
+  <div style={{position:'fixed',right:12,bottom:12,zIndex:9999,background:dbProblem?'#fff0f0':'#e8fff4',border:'1px solid #b3dfc4',borderRadius:9,padding:'9px 14px',fontSize:12,maxWidth:460,boxShadow:'0 3px 15px #0c22441c'}} role="status">{dbProblem?'⚠ '+dbProblem:'☁ '+dbMessage}</div>
   <aside className={'sidebar '+(mobileMenu?'sidebar-open':'')}>
     <div className="logo-row"><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span><IconButton className="mobile-dismiss" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
     <div className="sidebar-workspace"><div className="eyebrow">ESPACE DE TRAVAIL</div><button className="workspace-switcher" onClick={()=>switchBrand(brand==='bonas'?'lzo':'bonas')} title="Basculer de marque"><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>{info.person}</small></span><ChevronDown size={16}/></button></div>
@@ -223,7 +293,7 @@ export default function Studio(){
 
     {view==='sources'&&<div className="panel"><div className="panel-header"><div><h2>Bibliothèque de sources</h2><p>Références utilisées pour les contenus et la veille concurrentielle.</p></div><Badge tone="blue">{raw.sources.length} références</Badge></div><div className="source-list">{raw.sources.map(s=><div key={s.id} className="source-row"><div className="source-icon"><BookOpenIcon/></div><div><h3>{s.name}</h3><p>{s.purpose}</p><small>{s.type} · {s.status}</small>{s.caution&&<small className="caution-text">{clean(s.caution,160)}</small>}</div>{s.url?.startsWith('http')?<a href={s.url} target="_blank" rel="noopener noreferrer" className="source-open" title="Voir la référence"><ExternalLink size={17}/></a>:<span className="muted">Référence interne</span>}</div>)}</div></div>}
 
-    {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(['bonas','lzo'] as BrandId[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div><div className="setting-section"><h3>Notes internes</h3><textarea className="settings-notes" rows={6} value={ws.notes} onChange={e=>modifyWs(brand,w=>({...w,notes:e.target.value}))} placeholder="Ajoutez vos consignes, décisions et rappels pour cette marque..."/><small>Enregistrement automatique dans votre navigateur</small></div><div className="setting-section"><h3>Sauvegarde et restauration</h3><p>Les données ne sont pas partagées entre appareils. Exportez régulièrement votre travail.</p><div className="toolbar-buttons"><button className="btn btn-primary" onClick={exportBackup}><Download size={17}/> Exporter toute la sauvegarde</button><button className="btn btn-outline" onClick={()=>importInput.current?.click()}><Upload size={17}/> Importer une sauvegarde</button><input ref={importInput} accept="application/json,.json" type="file" style={{display:'none'}} onChange={e=>importBackup(e.target.files?.[0])}/></div></div></section><aside className="panel security-panel"><div className="security-symbol"><AlertTriangle size={27}/></div><h3>Avant de travailler à plusieurs</h3><p>Cette V1 utilise le stockage du navigateur. Pour synchroniser les modifications entre Sandrine, Laurence et l'équipe, il faudra connecter une base de données, une authentification et des permissions.</p><p>Le déploiement public ne doit pas être considéré comme un espace sécurisé sans protection d'accès.</p><div className="detail-line"><span>Publication auto</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>WhatsApp API</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>Sauvegarde locale</span><Badge tone="mint">Active</Badge></div></aside></div>}
+    {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(['bonas','lzo'] as BrandId[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div><div className="setting-section"><h3>Notes internes</h3><textarea className="settings-notes" rows={6} value={ws.notes} onChange={e=>modifyWs(brand,w=>({...w,notes:e.target.value}))} placeholder="Ajoutez vos consignes, décisions et rappels pour cette marque..."/><small>Enregistrement automatique dans la base Supabase</small></div><div className="setting-section"><h3>Sauvegarde et restauration</h3><p>Données synchronisées via Supabase et accessibles aux membres autorisés. Gardez aussi une sauvegarde JSON.</p><div className="toolbar-buttons"><button className="btn btn-primary" onClick={exportBackup}><Download size={17}/> Exporter toute la sauvegarde</button><button className="btn btn-outline" onClick={()=>importInput.current?.click()}><Upload size={17}/> Importer une sauvegarde</button><input ref={importInput} accept="application/json,.json" type="file" style={{display:'none'}} onChange={e=>importBackup(e.target.files?.[0])}/></div></div></section><aside className="panel security-panel"><div className="security-symbol"><AlertTriangle size={27}/></div><h3>Avant de travailler à plusieurs</h3><p>Cette V1 utilise le stockage du navigateur. Pour synchroniser les modifications entre Sandrine, Laurence et l'équipe, il faudra connecter une base de données, une authentification et des permissions.</p><p>Le déploiement public ne doit pas être considéré comme un espace sécurisé sans protection d'accès.</p><div className="detail-line"><span>Publication auto</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>WhatsApp API</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>Sauvegarde locale</span><Badge tone="mint">Active</Badge></div></aside></div>}
 
    </main>
   </div>
