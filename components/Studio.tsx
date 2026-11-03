@@ -13,13 +13,12 @@ import {
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
 } from 'lucide-react';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace } from '@/lib/types';
-import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace } from '@/lib/studio-db';
 import { BRAND_INFO, templates, createPosts, seededMedia, statuses, normalizeStatus, labelForType, asDate, longDate, shortDate, byDate, socialChannels, downloadJson } from '@/lib/data';
 
 type Toast = { message: string; kind?: 'success' | 'info' | 'warning' } | null;
 type LocalWorkspace = PersistentWorkspace;
 const emptyMetrics={messages:0,qualified:0,registrations:0,attendees:0};
-const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:createPosts(id),variants:templates[id].variants.map(x=>({...x})),media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
+const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:createPosts(id),variants:templates[id].variants.map(x=>({...x})),scripts:templates[id].scripts.map(x=>({...x})),media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
 const initialAll=():Record<BrandId,LocalWorkspace>=>({bonas:initialWorkspace('bonas'),lzo:initialWorkspace('lzo')});
 const nav:[View,string,React.ComponentType<{size?:number;strokeWidth?:number}>][]=[
  ['overview','Vue d’ensemble',LayoutDashboard],['planning','Programmation',CalendarClock],['calendar','Calendrier',CalendarDays],['kanban','Kanban éditorial',Columns3],['media','Médiathèque',Images],['editor','Éditeur de contenu',PenSquare],['video','Scripts vidéo',Video],['campaigns','Campagnes éditoriales',Megaphone],['whatsapp','WhatsApp & séminaires',MessageCircle],['insights','Analyses',ChartNoAxesCombined],['research','Veille & angles',Target],['sources','Sources & références',Library],['settings','Paramètres',Settings2]
@@ -47,15 +46,16 @@ export default function Studio(){
  const [view,setView]=useState<View>('overview');
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
  const [ready,setReady]=useState(false);
- const [user,setUser]=useState<{id:string;email?:string}|null>(null);
- const [authEmail,setAuthEmail]=useState('');
- const [authMessage,setAuthMessage]=useState('');
- const [authLoading,setAuthLoading]=useState(true);
- const [dbMessage,setDbMessage]=useState('Connexion à la base…');
- const [dbProblem,setDbProblem]=useState('');
- const versionRef=useRef<Record<BrandId,number>>({bonas:0,lzo:0});
- const snapshotRef=useRef<Record<BrandId,string>>({bonas:'',lzo:''});
- const pendingWrites=useRef<Record<BrandId,Promise<void>>>({bonas:Promise.resolve(),lzo:Promise.resolve()});
+ const [authStatus,setAuthStatus]=useState<'checking'|'login'|'ready'|'setup'|'error'>('checking');
+ const [authPassword,setAuthPassword]=useState('');
+ const [authError,setAuthError]=useState('');
+ const [saveStatus,setSaveStatus]=useState<'loading'|'saved'|'saving'|'error'>('loading');
+ const [backend,setBackend]=useState('Stockage serveur');
+ const revisionRef=useRef<Record<BrandId,string>>({bonas:'',lzo:''});
+ const savedRef=useRef<Record<BrandId,string>>({bonas:'',lzo:''});
+ const savingRef=useRef<Record<BrandId,boolean>>({bonas:false,lzo:false});
+ const liveRef=useRef<Record<BrandId,LocalWorkspace>>(workspaces);
+ liveRef.current=workspaces;
  const [search,setSearch]=useState('');
  const [filterStatus,setFilterStatus]=useState('Tous les statuts');
  const [filterChannel,setFilterChannel]=useState('Tous les canaux');
@@ -77,72 +77,96 @@ export default function Studio(){
  const fileInput=useRef<HTMLInputElement>(null);
  const importInput=useRef<HTMLInputElement>(null);
 
-
- useEffect(()=>{
-  if(!studioClient){setAuthLoading(false);return}
-  const client=studioClient;
-  let active=true;
-  const refresh=async()=>{
-   const {data,error}=await client.auth.getUser();
-   if(active){setUser(error?null:(data.user?{id:data.user.id,email:data.user.email}:null));setAuthLoading(false)}
-  };
-  void refresh();
-  const {data:{subscription}}=client.auth.onAuthStateChange((_event,session)=>{
-   if(active){setUser(session?.user?{id:session.user.id,email:session.user.email}:null);setAuthLoading(false)}
-  });
-  return()=>{active=false;subscription.unsubscribe()}
- },[]);
- useEffect(()=>{
-  if(!studioClient||!user){setReady(false);return}
-  let active=true;
-  const load=async()=>{
-   setReady(false);setDbProblem('');setDbMessage('Chargement des espaces Supabase…');
-   try{
-    const local=typeof window==='undefined'?null:window.localStorage.getItem('zenithis-studio-v2');
-    let previous:Record<BrandId,LocalWorkspace>|null=null;
-    try{previous=local?JSON.parse(local):null}catch{}
-    const records=await Promise.all((['bonas','lzo'] as BrandId[]).map(async id=>{
-      const seed=previous?.[id]?.posts?.length?previous[id]:initialWorkspace(id);
-      const record=await readWorkspace(id,seed,user.id);
-      return {id,...record};
-    }));
-    if(!active)return;
-    const next={bonas:records[0].data,lzo:records[1].data};
-    for(const record of records){
-      versionRef.current[record.id]=record.version;
-      snapshotRef.current[record.id]=JSON.stringify(encodeWorkspace(record.data));
+ async function loadServerWorkspaces(){
+  setSaveStatus('loading');
+  const items=await Promise.all((['bonas','lzo'] as BrandId[]).map(async id=>{
+   const response=await fetch(`/api/workspaces?brand=${id}`,{cache:'no-store'});
+   const result=await response.json();
+   if(!response.ok)throw new Error(result.error||`Chargement ${id} impossible`);
+   return [id,result] as const;
+  }));
+  const work={} as Record<BrandId,LocalWorkspace>;
+  let legacy:{[key:string]:LocalWorkspace}|null=null;
+  try {const saved=window.localStorage.getItem('zenithis-studio-v2');if(saved)legacy=JSON.parse(saved)} catch {}
+  let migrated=false;
+  for(const [id,result] of items){
+   const state=result.state as LocalWorkspace;
+   savedRef.current[id]=JSON.stringify(state);
+   revisionRef.current[id]=result.revision;
+   if(result.created&&legacy?.[id]?.posts?.length){
+    const old=legacy[id];
+    // Keep edits from the prototype, but browser data URLs must be re-uploaded.
+    const importedMedia=[...state.media,...(old.media||[]).filter(m=>m.id.startsWith('custom-')&&!m.src.startsWith('data:'))];
+    // Move locally stored images to durable private storage when migrating the prototype.
+    for(const image of (old.media||[]).filter(m=>m.id.startsWith('custom-')&&m.src.startsWith('data:image/'))){
+     try {
+      const blob=await fetch(image.src).then(r=>r.blob());
+      if(blob.size>4_000_000)continue;
+      const uploaded=new File([blob],image.name||'ancienne-image.png',{type:blob.type});
+      const form=new FormData();form.append('brand',id);form.append('file',uploaded);
+      const response=await fetch('/api/media',{method:'POST',body:form});
+      if(!response.ok)throw new Error('Import média ancien impossible');
+      importedMedia.push((await response.json()).media as MediaAsset);
+     } catch(error){console.warn('Migration image:',error)}
     }
-    setWorkspaces(next);setReady(true);setDbMessage('Connecté à Supabase · données persistantes');
-   }catch(e){if(active){setDbProblem(e instanceof Error?e.message:String(e));setDbMessage('Connexion à la base impossible')}}
-  };
-  void load();return()=>{active=false}
- },[user?.id]);
- useEffect(()=>{
-  if(!ready||!user||!studioClient)return;
-  const timeouts:Array<ReturnType<typeof setTimeout>>=[];
-  for(const id of ['bonas','lzo'] as BrandId[]){
-    const value=workspaces[id];
-    const serialized=JSON.stringify(encodeWorkspace(value));
-    if(serialized===snapshotRef.current[id])continue;
-    setDbMessage('Modifications en cours de synchronisation…');
-    timeouts.push(setTimeout(()=>{
-      pendingWrites.current[id]=pendingWrites.current[id].catch(()=>{}).then(async()=>{
-        const latest=JSON.stringify(encodeWorkspace(value));
-        if(latest===snapshotRef.current[id])return;
-        try{
-          const v=await saveWorkspace(id,value,versionRef.current[id],user.id);
-          versionRef.current[id]=v;snapshotRef.current[id]=latest;
-          setDbProblem('');setDbMessage('Toutes les modifications sont enregistrées dans Supabase');
-        }catch(e){
-          const message=e instanceof Error?e.message:String(e);
-          setDbProblem(message);setDbMessage('Erreur de sauvegarde · veuillez exporter une copie');
-        }
-      });
-    },900));
+    work[id]={...state,posts:old.posts,variants:old.variants||state.variants,scripts:old.scripts||state.scripts,metrics:old.metrics||state.metrics,notes:old.notes||'',media:importedMedia};
+    migrated=true;
+   }else{work[id]=state}
   }
-  return()=>timeouts.forEach(clearTimeout);
- },[workspaces,ready,user?.id]);
- useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t)},[toast]);
+  setWorkspaces(work);
+  setReady(true);
+  setSaveStatus(migrated?'saving':'saved');
+  if(migrated)setToast({message:'Anciennes modifications et images compatibles transférées vers le serveur.',kind:'info'});
+ }
+ useEffect(()=>{
+  let active=true;
+  const boot=async()=>{
+   try{
+    const response=await fetch('/api/session',{cache:'no-store'});
+    const session=await response.json();
+    if(!active)return;
+    if(!session.configured){setAuthStatus('setup');return}
+    if(!session.authenticated){setAuthStatus('login');return}
+    await loadServerWorkspaces();if(active){setBackend(session.provider);setAuthStatus('ready')}
+   }catch(error){if(active){setAuthError(String(error));setAuthStatus('error')}}
+  };
+  boot();return()=>{active=false};
+ },[]);
+ async function saveBrand(id:BrandId){
+  if(savingRef.current[id])return;
+  savingRef.current[id]=true;
+  setSaveStatus('saving');
+  try {
+   for(let attempt=0;attempt<10;attempt++){
+    const state=liveRef.current[id];
+    const current=JSON.stringify(state);
+    if(current===savedRef.current[id])break;
+    const response=await fetch('/api/workspaces',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({brand:id,state,revision:revisionRef.current[id]})});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.error||`Échec de l'enregistrement (${response.status})`);
+    revisionRef.current[id]=result.revision;
+    savedRef.current[id]=current;
+   }
+   setSaveStatus('saved');
+  }catch(error){setSaveStatus('error');setToast({message:String(error),kind:'warning'})}
+  finally{savingRef.current[id]=false}
+ }
+ useEffect(()=>{
+  if(!ready||authStatus!=='ready')return;
+  const handle=setTimeout(()=>{(['bonas','lzo'] as BrandId[]).forEach(id=>{void saveBrand(id)})},850);
+  return()=>clearTimeout(handle);
+ },[ready,authStatus,workspaces]);
+ const signIn=async(e:React.FormEvent)=>{
+  e.preventDefault();setAuthError('');
+  const response=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:authPassword})});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok){setAuthError(data.error||'Mot de passe incorrect');return}
+  setAuthPassword('');setAuthStatus('checking');
+  try{await loadServerWorkspaces();setAuthStatus('ready');const session=await fetch('/api/session').then(r=>r.json());setBackend(session.provider)}
+  catch(error){setAuthError(String(error));setAuthStatus('error')}
+ };
+ const signOut=async()=>{await fetch('/api/session',{method:'DELETE'});setReady(false);setWorkspaces(initialAll());setAuthStatus('login')};
+  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t)},[toast]);
  const info=BRAND_INFO[brand], raw=templates[brand], ws=workspaces[brand];
  const allPosts=ws.posts;
  const selectedPost=allPosts.find(p=>p.id===selectedPostId) || null;
@@ -155,26 +179,32 @@ export default function Studio(){
  }).sort(byDate),[allPosts,search,filterStatus,filterChannel]);
  const upcoming=useMemo(()=>[...allPosts].sort(byDate).filter(x=>x.date>='2026-11-02').slice(0,6),[allPosts]);
  const pipeline=useMemo(()=>statuses.map(s=>({name:s,count:allPosts.filter(p=>normalizeStatus(p.status)===s).length})),[allPosts]);
- const stats={posts:allPosts.length,variants:ws.variants.length,videos:raw.scripts.length,published:pipeline.find(x=>x.name==='Publié')?.count||0,scheduled:pipeline.find(x=>x.name==='Programmé')?.count||0};
+ const stats={posts:allPosts.length,variants:ws.variants.length,videos:ws.scripts.length,published:pipeline.find(x=>x.name==='Publié')?.count||0,scheduled:pipeline.find(x=>x.name==='Programmé')?.count||0};
  const countsByWeek=useMemo(()=>Array.from({length:8},(_,i)=>{const week=`S${i+1}`;return {week,planned:allPosts.filter(p=>p.week===week).length,published:allPosts.filter(p=>p.week===week&&normalizeStatus(p.status)==='Publié').length}}),[allPosts]);
  const notify=(message:string,kind:'success'|'info'|'warning'='success')=>setToast({message,kind});
  const switchBrand=(id:BrandId)=>{setBrand(id);setView('overview');setSelectedPostId('');setSelectedMediaId('');setSearch('');setFilterStatus('Tous les statuts');setFilterChannel('Tous les canaux')};
  const modifyWs=(id:BrandId,fn:(p:LocalWorkspace)=>LocalWorkspace)=>setWorkspaces(old=>({...old,[id]:fn(old[id])}));
  const updatePost=(id:string,patch:Partial<ContentPost>)=>{modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===id?{...p,...patch}:p)}));notify('Contenu mis à jour dans cet espace de travail')};
+ const updateScript=(id:string,patch:Partial<Script>)=>modifyWs(brand,w=>({...w,scripts:w.scripts.map(s=>s.id===id?{...s,...patch}:s)}));
  const updateVariant=(id:string,patch:Partial<ChannelVariant>)=>{modifyWs(brand,w=>({...w,variants:w.variants.map(v=>v.id===id?{...v,...patch}:v)}));notify('Déclinaison enregistrée')};
  const jumpToPost=(id:string,where:View='editor')=>{setSelectedPostId(id);setEditorDraft({});setEditTab('contenu');setView(where);setMobileMenu(false)};
  const exportBackup=()=>{downloadJson({version:1,exportedAt:new Date().toISOString(),workspaces},'zenithis-studio-sauvegarde.json');notify('Sauvegarde JSON téléchargée')};
- const importBackup=async(file:File|undefined)=>{if(!file||!user)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj?.workspaces?.bonas?.posts||!obj?.workspaces?.lzo?.posts)throw new Error('Format incompatible');setWorkspaces(obj.workspaces);notify('Sauvegarde restaurée')}catch{notify('Le fichier n’est pas une sauvegarde compatible','warning')}};
+ const importBackup=async(file:File|undefined)=>{if(!file)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj?.workspaces?.bonas?.posts||!obj?.workspaces?.lzo?.posts)throw new Error('Format incompatible');setWorkspaces(obj.workspaces);notify('Sauvegarde restaurée')}catch{notify('Le fichier n’est pas une sauvegarde compatible','warning')}};
  const addPost=()=>{
   const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'PLAN B':'MON APRÈS',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Écris PLAN B':'Écris AVENIR',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
  const mediaUpload=async(file:File|undefined)=>{
-  if(!file||!user||!studioClient)return;
-  setDbMessage('Envoi du fichier dans Supabase Storage…');
+  if(!file)return;
+  if(!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)){notify('Formats acceptés : JPG, PNG, WEBP, GIF','warning');return}
+  if(file.size>4_000_000){notify('Image trop lourde : maximum 4 Mo','warning');return}
+  const form=new FormData();form.append('file',file);form.append('brand',brand);
+  notify('Transfert vers la médiathèque privée...','info');
   try{
-    const asset=await uploadStudioMedia(file,brand);
-    modifyWs(brand,w=>({...w,media:[asset,...w.media]}));
-    notify('Fichier téléversé dans Supabase Storage et ajouté à la médiathèque');
-  }catch(e){notify('Échec du téléversement : '+(e instanceof Error?e.message:String(e)),'warning')}
+   const r=await fetch('/api/media',{method:'POST',body:form});
+   const data=await r.json();if(!r.ok)throw new Error(data.error||'Import impossible');
+   const m=data.media as MediaAsset;
+   modifyWs(brand,w=>({...w,media:[m,...w.media]}));
+   notify('Image transférée et conservée sur le serveur');
+  }catch(e){notify('Erreur média : '+String(e),'warning')}
  };
  const copyText=(text:string)=>{navigator.clipboard?.writeText(text).then(()=>notify('Texte copié')).catch(()=>notify('Copie indisponible dans ce navigateur','warning'))};
  const openEditor=(post:ContentPost)=>jumpToPost(post.id);
@@ -193,7 +223,7 @@ export default function Studio(){
   insights:{title:'Analyses',subtitle:'Mesurez les étapes qui comptent vraiment.',icon:ChartNoAxesCombined},
   research:{title:'Veille concurrentielle & angles',subtitle:'Des observations vérifiables aux sujets réellement différenciants.',icon:Target},
   sources:{title:'Sources & veille',subtitle:'Références, preuves et inspirations documentées.',icon:Library},
-  settings:{title:'Paramètres',subtitle:'Gérez votre espace et protégez vos données locales.',icon:Settings2}
+  settings:{title:'Paramètres',subtitle:'Sauvegardez et gérez vos données sur le serveur.',icon:Settings2}
  };
  const banner=pageMeta[view]; const BannerIcon=banner.icon;
  const research=raw.research;
@@ -206,32 +236,16 @@ export default function Studio(){
  </article>;
  const ToolbarFilters=()=> <div className="toolbar-filters"><div className="inline-search"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un contenu..." aria-label="Rechercher un contenu"/></div><select aria-label="Statut" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}><option>Tous les statuts</option>{statuses.map(s=><option key={s}>{s}</option>)}</select><select aria-label="Canal" value={filterChannel} onChange={e=>setFilterChannel(e.target.value)}><option>Tous les canaux</option>{socialChannels.map(c=><option key={c}>{c}</option>)}</select><span className="muted little">{filtered.length} contenus</span></div>;
 
-
- const authPanel:React.CSSProperties={minHeight:'100vh',display:'grid',placeItems:'center',background:'#f3f6ff',padding:'24px'};
- const authCard:React.CSSProperties={maxWidth:550,width:'100%',background:'#fff',borderRadius:20,padding:32,boxShadow:'0 12px 45px #1525561c',color:'#14204c'};
- if(!studioClient)return <main style={authPanel}><div style={authCard}><h1>Zenithis Content Studio</h1><h2>Base de données non configurée</h2><p>La sauvegarde locale a été désactivée pour ne plus annoncer de faux enregistrements. Ajoutez NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY dans Vercel puis appliquez la migration SQL Supabase.</p><p>Le compte doit être autorisé dans studio_members. Les données restent protégées par RLS.</p></div></main>;
- if(authLoading)return <main style={authPanel}><div style={authCard}>Vérification de la session…</div></main>;
- if(!user)return <main style={authPanel}><form style={authCard} onSubmit={async e=>{
-  e.preventDefault();if(!studioClient||!authEmail.trim())return;
-  const {error}=await studioClient.auth.signInWithOtp({email:authEmail.trim(),options:{emailRedirectTo:window.location.origin}});
-  setAuthMessage(error?'Connexion refusée : '+error.message:'Lien de connexion envoyé. Ouvrez votre boîte mail.');
- }}>
- <h1>Zenithis Content Studio</h1><p>Connexion sécurisée pour accéder aux espaces BONAS-INC et LZO Empire.</p>
- <label htmlFor="studio-email">Adresse e-mail</label>
- <input id="studio-email" required type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} style={{display:'block',width:'100%',padding:14,border:'1px solid #ccd6ed',borderRadius:10,margin:'12px 0'}} />
- <button className="btn btn-primary" type="submit">Recevoir mon lien de connexion</button><p role="status">{authMessage}</p>
- </form></main>;
- if(!ready)return <main style={authPanel}><div style={authCard}><h2>Chargement des données</h2><p>{dbProblem||dbMessage}</p>
- {dbProblem&&<><p>Vérifiez la migration SQL et les autorisations studio_members du compte {user.email}.</p><button className="btn btn-outline" onClick={()=>studioClient?.auth.signOut()}>Changer de compte</button></>}
- </div></main>;
+ if(authStatus!=='ready')return <div className="auth-shell"><div className="auth-card"><div className="auth-mark"><Layers size={30}/></div><h1>Zenithis Content Studio</h1><p>Votre espace privé de gestion éditoriale · BONAS-INC & LZO Empire</p>
+  {authStatus==='login'?<form onSubmit={signIn}><label htmlFor="studioPassword">Mot de passe de l’espace</label><input id="studioPassword" type="password" autoComplete="current-password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} required autoFocus/><button className="btn btn-primary" type="submit">Accéder à mon espace</button>{authError&&<p className="auth-error">{authError}</p>}</form>:authStatus==='setup'?<div className="auth-help"><strong>Configuration requise</strong><p>Les variables STUDIO_ADMIN_PASSWORD, STUDIO_SESSION_SECRET et BLOB_READ_WRITE_TOKEN doivent être définies dans Vercel.</p></div>:authStatus==='error'?<div className="auth-help"><strong>Chargement impossible</strong><p>{authError}</p><button onClick={()=>window.location.reload()} className="btn btn-outline">Réessayer</button></div>:<div className="auth-help">Connexion au stockage sécurisé…</div>}
+ </div></div>;
  return <div className="studio-shell" style={{'--brand-accent':info.color,'--brand-light':info.light} as React.CSSProperties}>
-  <div style={{position:'fixed',right:12,bottom:12,zIndex:9999,background:dbProblem?'#fff0f0':'#e8fff4',border:'1px solid #b3dfc4',borderRadius:9,padding:'9px 14px',fontSize:12,maxWidth:460,boxShadow:'0 3px 15px #0c22441c'}} role="status">{dbProblem?'⚠ '+dbProblem:'☁ '+dbMessage}</div>
   <aside className={'sidebar '+(mobileMenu?'sidebar-open':'')}>
     <div className="logo-row"><span className="brand-mark"><Layers size={18} strokeWidth={3}/></span><span className="brand-text">Zenithis<span>Studio</span></span><IconButton className="mobile-dismiss" onClick={()=>setMobileMenu(false)}><X size={18}/></IconButton></div>
     <div className="sidebar-workspace"><div className="eyebrow">ESPACE DE TRAVAIL</div><button className="workspace-switcher" onClick={()=>switchBrand(brand==='bonas'?'lzo':'bonas')} title="Basculer de marque"><span className="workspace-initial">{info.initial}</span><span><b>{info.label}</b><small>{info.person}</small></span><ChevronDown size={16}/></button></div>
     <div className="sidebar-label">WORKSPACE</div>
     <nav className="side-nav" aria-label="Navigation principale">{nav.map(([key,label,Icon])=><button type="button" onClick={()=>{setView(key);setMobileMenu(false);setSearch('')}} key={key} className={'nav-link '+(view===key?'nav-active':'')}><Icon size={19} strokeWidth={1.9}/><span>{label}</span>{key==='planning'&&<span className="nav-count">{stats.posts}</span>}</button>)}</nav>
-    <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={16}/> CONSEIL DU STUDIO</span><p>Un bon contenu explique avant de convaincre.</p><button onClick={()=>setView('sources')}>Consulter les sources <ArrowRight size={14}/></button></div><div className="sidebar-foot"><span className="online-dot"/> Sauvegarde locale active</div></div>
+    <div className="sidebar-bottom"><div className="sidebar-tip"><span><Sparkles size={16}/> CONSEIL DU STUDIO</span><p>Un bon contenu explique avant de convaincre.</p><button onClick={()=>setView('sources')}>Consulter les sources <ArrowRight size={14}/></button></div><div className="sidebar-foot"><span className="online-dot"/> {saveStatus==='saved'?'Enregistré sur le serveur':saveStatus==='saving'?'Enregistrement en cours':saveStatus==='error'?'Sauvegarde en erreur':'Chargement…'}</div></div>
   </aside>
   {mobileMenu&&<div className="mobile-overlay" onClick={()=>setMobileMenu(false)}/>}
   <div className="app-column">
@@ -264,22 +278,22 @@ export default function Studio(){
 
     {view==='kanban'&&<><div className="panel kanban-help"><div className="panel-header"><div><h2>Production de contenu</h2><p>Glissez une carte vers une autre colonne ou utilisez son sélecteur de statut.</p></div><Badge tone="purple">{stats.posts} cartes</Badge></div>{ToolbarFilters()}</div><section className="kanban-board">{statuses.map(s=>{const cards=filtered.filter(p=>normalizeStatus(p.status)===s);return <div className="kanban-column" key={s} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(kanbanFilter)updatePost(kanbanFilter,{status:s});setKanbanFilter('')}}><header><span className={'kanban-bubble '+statusClass(s)}/><strong>{s}</strong><em>{cards.length}</em></header><div className="kanban-cards">{cards.map(p=><article draggable onDragStart={()=>setKanbanFilter(p.id)} onDragEnd={()=>setKanbanFilter('')} className="kanban-card" key={p.id}><div className="kanban-type"><span>{labelForType(p.type)}</span><GripIcon/></div><button className="kanban-title" onClick={()=>openEditor(p)}>{p.title}</button><p>{clean(p.caption,90)}</p><div className="channel-row">{p.channels.slice(0,3).map((c,i)=><Channel key={i} name={c} small/>)}</div><footer><span><CalendarDays size={13}/>{shortDate(p.date)}</span><select title="Changer le statut" value={normalizeStatus(p.status)} onChange={e=>updatePost(p.id,{status:e.target.value})}>{statuses.map(ss=><option key={ss}>{ss}</option>)}</select></footer></article>)}</div></div>})}</section></>}
 
-    {view==='media'&&<><div className="panel media-toolbar"><div className="panel-header"><div><h2>Bibliothèque des supports</h2><p>Images de campagne et créations disponibles localement.</p></div><div className="toolbar-buttons"><input ref={fileInput} type="file" accept="image/*" style={{display:'none'}} onChange={e=>mediaUpload(e.target.files?.[0])}/><button className="btn btn-primary" onClick={()=>fileInput.current?.click()}><Plus size={16}/> Ajouter une image</button></div></div><div className="pill-tabs">{['Tous','Image','Vidéo','Document'].map(x=><button onClick={()=>setMediaFilter(x)} className={mediaFilter===x?'active':''} key={x}>{x}</button>)}</div></div><div className="media-layout"><div className="media-grid">{ws.media.filter(x=>mediaFilter==='Tous'||x.kind===mediaFilter).map(m=><button key={m.id} className={'asset-card '+(selectedMediaId===m.id?'asset-selected':'')} onClick={()=>setSelectedMediaId(m.id)}><div className="asset-image">{m.kind==='Image'?<img src={m.src} alt={m.name}/>:<FileVideo size={36}/>}</div><div className="asset-caption"><strong>{m.name}</strong><span>{m.format} <MoreHorizontal size={15}/></span></div></button>)}</div><aside className="panel asset-details"><div className="panel-header"><h2>Détails du média</h2><IconButton onClick={()=>setSelectedMediaId('')}><X size={16}/></IconButton></div>{selectedMedia?<><div className="asset-large"><img src={selectedMedia.src} alt={selectedMedia.name}/></div><h3>{selectedMedia.name}</h3><p className="muted">{selectedMedia.note||'Ressource de création'}</p><div className="detail-line"><span>Type</span><strong>{selectedMedia.kind}</strong></div><div className="detail-line"><span>Format</span><strong>{selectedMedia.format}</strong></div><div className="detail-line"><span>Date</span><strong>{selectedMedia.created}</strong></div><div className="detail-line"><span>Marque</span><strong>{info.label}</strong></div><a className="btn btn-primary full-btn" href={selectedMedia.src} download={selectedMedia.name}><Download size={15}/> Télécharger</a></>:<div className="empty-day"><Images size={30}/><p>Sélectionnez un média pour afficher ses informations.</p></div>}</aside></div></>}
+    {view==='media'&&<><div className="panel media-toolbar"><div className="panel-header"><div><h2>Bibliothèque des supports</h2><p>Images de campagne et créations conservées dans le stockage privé.</p></div><div className="toolbar-buttons"><input ref={fileInput} type="file" accept="image/*" style={{display:'none'}} onChange={e=>mediaUpload(e.target.files?.[0])}/><button className="btn btn-primary" onClick={()=>fileInput.current?.click()}><Plus size={16}/> Ajouter une image</button></div></div><div className="pill-tabs">{['Tous','Image','Vidéo','Document'].map(x=><button onClick={()=>setMediaFilter(x)} className={mediaFilter===x?'active':''} key={x}>{x}</button>)}</div></div><div className="media-layout"><div className="media-grid">{ws.media.filter(x=>mediaFilter==='Tous'||x.kind===mediaFilter).map(m=><button key={m.id} className={'asset-card '+(selectedMediaId===m.id?'asset-selected':'')} onClick={()=>setSelectedMediaId(m.id)}><div className="asset-image">{m.kind==='Image'?<img src={m.src} alt={m.name}/>:<FileVideo size={36}/>}</div><div className="asset-caption"><strong>{m.name}</strong><span>{m.format} <MoreHorizontal size={15}/></span></div></button>)}</div><aside className="panel asset-details"><div className="panel-header"><h2>Détails du média</h2><IconButton onClick={()=>setSelectedMediaId('')}><X size={16}/></IconButton></div>{selectedMedia?<><div className="asset-large"><img src={selectedMedia.src} alt={selectedMedia.name}/></div><h3>{selectedMedia.name}</h3><p className="muted">{selectedMedia.note||'Ressource de création'}</p><div className="detail-line"><span>Type</span><strong>{selectedMedia.kind}</strong></div><div className="detail-line"><span>Format</span><strong>{selectedMedia.format}</strong></div><div className="detail-line"><span>Date</span><strong>{selectedMedia.created}</strong></div><div className="detail-line"><span>Marque</span><strong>{info.label}</strong></div><a className="btn btn-primary full-btn" href={selectedMedia.src} download={selectedMedia.name}><Download size={15}/> Télécharger</a></>:<div className="empty-day"><Images size={30}/><p>Sélectionnez un média pour afficher ses informations.</p></div>}</aside></div></>}
 
     {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons"><button className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button><button className="btn btn-primary" disabled={!selectedPost} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><span>{clean(p.title,55)}</span><small>{shortDate(p.date)} · {labelForType(p.type)}</small></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-tabs"><button className={editTab==='contenu'?'active':''} onClick={()=>setEditTab('contenu')}>Contenu maître</button><button className={editTab==='declinaisons'?'active':''} onClick={()=>setEditTab('declinaisons')}>Déclinaisons ({currentVariants.length})</button></div>{editTab==='contenu'?<><label className="field">Titre du contenu<input value={editorDraft.title??selectedPost.title} onChange={e=>setEditorDraft(d=>({...d,title:e.target.value}))}/></label><div className="two-fields"><label className="field">Date<input type="date" value={editorDraft.date??selectedPost.date} onChange={e=>setEditorDraft(d=>({...d,date:e.target.value}))}/></label><label className="field">Heure<input type="time" value={editorDraft.time??selectedPost.time} onChange={e=>setEditorDraft(d=>({...d,time:e.target.value}))}/></label></div><label className="field">Texte principal<textarea rows={12} value={editorDraft.caption??selectedPost.caption} onChange={e=>setEditorDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">Appel à l’action<input value={editorDraft.cta??selectedPost.cta} onChange={e=>setEditorDraft(d=>({...d,cta:e.target.value}))}/></label><label className="field">Hashtags<textarea rows={2} value={editorDraft.hashtags??selectedPost.hashtags} onChange={e=>setEditorDraft(d=>({...d,hashtags:e.target.value}))}/></label><div className="two-fields"><label className="field">Étape<select value={editorDraft.status??normalizeStatus(selectedPost.status)} onChange={e=>setEditorDraft(d=>({...d,status:e.target.value}))}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label className="field">Canaux<input value={(editorDraft.channels??selectedPost.channels).join(', ')} onChange={e=>setEditorDraft(d=>({...d,channels:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)}))}/></label></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((editorDraft.caption??selectedPost.caption)+'\n'+(editorDraft.hashtags??selectedPost.hashtags))}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>{updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}>Enregistrer les modifications <Check size={16}/></button></div></>:<><div className="variant-tabs">{currentVariants.length===0?<p>Aucune déclinaison pour ce contenu.</p>:currentVariants.map(v=><button className={(chosenVariant?.id===v.id)?'active':''} onClick={()=>{setVariantId(v.id);setVariantDraft({})}} key={v.id}><Channel name={v.channel} small/>{v.channel}</button>)}</div>{chosenVariant&&<><label className="field">Accroche<input value={variantDraft.hook??chosenVariant.hook} onChange={e=>setVariantDraft(d=>({...d,hook:e.target.value}))}/></label><label className="field">Texte adapté à {chosenVariant.channel}<textarea rows={12} value={variantDraft.caption??chosenVariant.caption} onChange={e=>setVariantDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">CTA<input value={variantDraft.cta??chosenVariant.cta} onChange={e=>setVariantDraft(d=>({...d,cta:e.target.value}))}/></label><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((variantDraft.caption??chosenVariant.caption)+'\n'+chosenVariant.hashtags)}><Copy size={16}/> Copier</button><button className="btn btn-primary" onClick={()=>{updateVariant(chosenVariant.id,variantDraft);setVariantDraft({})}}>Enregistrer la déclinaison</button></div></>}</>}</>:<div className="empty-day"><PenSquare size={32}/><p>Choisissez un contenu sur la gauche pour l’éditer.</p></div>}</section><aside className="panel editor-side"><h3>Assistant de production</h3><div className="editor-assist-intro"><Sparkles size={21}/><strong>Checklist éditoriale</strong><p>Chaque publication doit être utile et fidèle au modèle réel.</p></div>{['Accroche compréhensible en 3 secondes','Une seule idée principale','Aucun revenu garanti ni preuve inventée','CTA simple vers WhatsApp','Adaptation selon le réseau','Vérification des faits avant publication'].map(x=><label className="check-line" key={x}><input type="checkbox"/> {x}</label>)}<div className="editor-side-note"><Info size={16}/> Les suggestions IA automatiques et la publication directe nécessitent des services connectés. Elles ne sont pas actives dans cette V1.</div></aside></div></div>}
 
-    {view==='video'&&<div className="video-layout"><section className="panel script-list"><div className="panel-header"><div><h2>Scénarios prêts à tourner</h2><p>{raw.scripts.length} scripts développés pour {info.person.split(' ')[0]} · 1:40–2:00</p></div></div><div className="script-cards">{raw.scripts.map((s:Script)=><button className={'script-card '+(selectedScript===s.id?'selected':'')} key={s.id} onClick={()=>setSelectedScript(s.id)}><span className="script-number">{s.id.slice(-3)}</span><span><strong>{clean(s.hook,80)}</strong><small>{shortDate(s.date)} · {s.duration||'Vidéo courte'} · {s.angle||'Face caméra'}</small></span><ChevronRight size={16}/></button>)}</div></section><section className="panel script-detail">{(()=>{const s=raw.scripts.find((x:Script)=>x.id===selectedScript)||raw.scripts[0];if(!s)return null;return <><div className="script-hero"><Badge tone="blue">Scénario · {s.week}</Badge><Badge tone="purple">{s.duration}</Badge><h2>{s.hook}</h2><p>{s.angle||s.role}</p></div><div className="script-toolbox"><div className="script-toolbox-title"><span><Video size={18}/> Texte intégral à dire</span><button className="btn btn-primary" onClick={()=>copyText(s.spoken||[s.hook,s.tension,s.story,s.realism,s.cta].join('\n\n'))}><Copy size={15}/> Copier toute la narration</button></div><p className="script-voiceover">{s.spoken||[s.hook,s.tension,s.story,s.realism,s.cta].join('\n\n')}</p></div><div className="panel-subhead"><h3>Storyboard · {s.scenes?.length||'6'} scènes</h3><p>Chaque plan précise ce qui est dit, filmé et affiché à l’écran.</p></div><div className="scenes-stack">{s.scenes?.map((scene,index)=><article className="scene-card" key={index}><div className="scene-index"><span>{String(index+1).padStart(2,'0')}</span><strong>{scene.time}</strong></div><div><h4>{scene.scene}</h4><div className="scene-speech">« {scene.spoken} »</div><div className="scene-columns"><span><b>ÉCRAN</b>{scene.onScreen}</span><span><b>PLAN / DÉTAIL</b>{scene.shot}</span></div></div><button className="script-copy" onClick={()=>copyText(scene.spoken)} title="Copier les paroles"><Copy size={16}/></button></article>)}</div><div className="script-two-col"><div className="script-panel"><h3>Variantes d’accroche</h3>{(s.hookAlternatives||[]).map((h,i)=><button className="hook-alt" key={i} onClick={()=>copyText(h)}><span>{i+1}</span><strong>{h}</strong><Copy size={14}/></button>)}</div><div className="script-panel"><h3>Versions par réseau</h3>{Object.entries(s.platformCuts||{}).map(([channel,note])=><div className="script-cut" key={channel}><strong>{channel}</strong><p>{note}</p></div>)}</div></div><div className="script-panel"><h3>Production, son & vérifications</h3>{[['Direction',s.direction],['Son / montage',s.sound],['Matériel & couverture',s.asset],['Détails à confirmer',s.proofNeeded||s.compliance]].map(([label,txt])=><div className="detail-line" key={label}><span>{label}</span><strong>{txt}</strong></div>)}</div><div className="script-panel"><h3>Références vérifiables</h3><div className="source-chips">{(s.referenceIds||s.sources.split(',').map(x=>x.trim())).map((id,i)=>{const src=raw.sources.find(x=>x.id===id);return src?.url?.startsWith('http')?<a target="_blank" rel="noopener noreferrer" href={src.url} key={i}>{src.name}<ExternalLink size={12}/></a>:<span key={i}>{src?.name||id}</span>})}</div></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText(s.postCaption||s.story)}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>copyText(s.spoken||s.timeline)}><Copy size={16}/> Copier le script complet</button></div></>})()}</section></div>}
+    {view==='video'&&<div className="video-layout"><section className="panel script-list"><div className="panel-header"><div><h2>Scénarios prêts à tourner</h2><p>{ws.scripts.length} scripts développés pour {info.person.split(' ')[0]} · 1:40–2:00</p></div></div><div className="script-cards">{ws.scripts.map((s:Script)=><button className={'script-card '+(selectedScript===s.id?'selected':'')} key={s.id} onClick={()=>setSelectedScript(s.id)}><span className="script-number">{s.id.slice(-3)}</span><span><strong>{clean(s.hook,80)}</strong><small>{shortDate(s.date)} · {s.duration||'Vidéo courte'} · {s.angle||'Face caméra'}</small></span><ChevronRight size={16}/></button>)}</div></section><section className="panel script-detail">{(()=>{const s=ws.scripts.find((x:Script)=>x.id===selectedScript)||ws.scripts[0];if(!s)return null;return <><div className="script-hero"><Badge tone="blue">Scénario · {s.week}</Badge><Badge tone="purple">{s.duration}</Badge><h2>{s.hook}</h2><p>{s.angle||s.role}</p></div><div className="script-panel"><h3>Modifier ce script</h3><label>Accroche</label><input className="studio-field" value={s.hook} onChange={e=>updateScript(s.id,{hook:e.target.value})}/><label>Narration complète</label><textarea className="settings-notes" rows={9} value={s.spoken||''} onChange={e=>updateScript(s.id,{spoken:e.target.value})}/><label>Légende vidéo</label><textarea className="settings-notes" rows={4} value={s.postCaption||''} onChange={e=>updateScript(s.id,{postCaption:e.target.value})}/><p className="muted">Sauvegarde automatique sur le serveur.</p></div><div className="script-toolbox"><div className="script-toolbox-title"><span><Video size={18}/> Texte intégral à dire</span><button className="btn btn-primary" onClick={()=>copyText(s.spoken||[s.hook,s.tension,s.story,s.realism,s.cta].join('\n\n'))}><Copy size={15}/> Copier toute la narration</button></div><p className="script-voiceover">{s.spoken||[s.hook,s.tension,s.story,s.realism,s.cta].join('\n\n')}</p></div><div className="panel-subhead"><h3>Storyboard · {s.scenes?.length||'6'} scènes</h3><p>Chaque plan précise ce qui est dit, filmé et affiché à l’écran.</p></div><div className="scenes-stack">{s.scenes?.map((scene,index)=><article className="scene-card" key={index}><div className="scene-index"><span>{String(index+1).padStart(2,'0')}</span><strong>{scene.time}</strong></div><div><h4>{scene.scene}</h4><div className="scene-speech">« {scene.spoken} »</div><div className="scene-columns"><span><b>ÉCRAN</b>{scene.onScreen}</span><span><b>PLAN / DÉTAIL</b>{scene.shot}</span></div></div><button className="script-copy" onClick={()=>copyText(scene.spoken)} title="Copier les paroles"><Copy size={16}/></button></article>)}</div><div className="script-two-col"><div className="script-panel"><h3>Variantes d’accroche</h3>{(s.hookAlternatives||[]).map((h,i)=><button className="hook-alt" key={i} onClick={()=>copyText(h)}><span>{i+1}</span><strong>{h}</strong><Copy size={14}/></button>)}</div><div className="script-panel"><h3>Versions par réseau</h3>{Object.entries(s.platformCuts||{}).map(([channel,note])=><div className="script-cut" key={channel}><strong>{channel}</strong><p>{note}</p></div>)}</div></div><div className="script-panel"><h3>Production, son & vérifications</h3>{[['Direction',s.direction],['Son / montage',s.sound],['Matériel & couverture',s.asset],['Détails à confirmer',s.proofNeeded||s.compliance]].map(([label,txt])=><div className="detail-line" key={label}><span>{label}</span><strong>{txt}</strong></div>)}</div><div className="script-panel"><h3>Références vérifiables</h3><div className="source-chips">{(s.referenceIds||s.sources.split(',').map(x=>x.trim())).map((id,i)=>{const src=raw.sources.find(x=>x.id===id);return src?.url?.startsWith('http')?<a target="_blank" rel="noopener noreferrer" href={src.url} key={i}>{src.name}<ExternalLink size={12}/></a>:<span key={i}>{src?.name||id}</span>})}</div></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText(s.postCaption||s.story)}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>copyText(s.spoken||s.timeline)}><Copy size={16}/> Copier le script complet</button></div></>})()}</section></div>}
 
     {view==='campaigns'&&<><div className="campaign-intro panel"><div><Badge tone="purple">CAMPAGNE ÉDITORIALE · 8 SEMAINES</Badge><h2>{raw.config.tagline}</h2><p>Un parcours de contenus réguliers, de la découverte à la première présentation collective. Le tableau correspond au planning éditorial : aucune campagne publicitaire Meta n'est modifiée ici.</p></div><div className="campaign-stats"><span><b>{stats.posts}</b> publications</span><span><b>{stats.variants}</b> déclinaisons</span><span><b>{raw.events.length}</b> séquences WhatsApp</span></div></div><div className="campaign-weeks">{countsByWeek.map(w=><div key={w.week} className="panel campaign-week"><div className="campaign-week-head"><Badge tone="blue">{w.week}</Badge><strong>{w.planned} contenus</strong></div><h3>{w.week==='S1'?'Faire connaissance':w.week==='S2'?'Faire émerger les questions':w.week==='S3'?'Éduquer sans promesses':w.week==='S4'?'Explorer les objections':w.week==='S5'?'Présenter les étapes':w.week==='S6'?'Bâtir la confiance':w.week==='S7'?'Inviter à découvrir':'Consolider la communauté'}</h3><div className="campaign-week-items">{allPosts.filter(p=>p.week===w.week).sort(byDate).slice(0,5).map(p=><button onClick={()=>openEditor(p)} key={p.id}><span className="tiny-dot"/>{clean(p.title,50)}<ArrowUpRight size={14}/></button>)}</div><button className="text-link" onClick={()=>{setView('planning');setFilterStatus('Tous les statuts')}}>Ouvrir les contenus <ArrowRight size={14}/></button></div>)}</div></>}
 
     {view==='whatsapp'&&<><div className="funnel-grid">{[['1','Conversation privée',MessageCircle],['2','Groupe commun',Users],['3','Présentation collective',CalendarCheck],['4','Suite avec la coach',UserRound]].map(([n,title,Icon])=><div className="panel funnel-card" key={String(n)}><span>{n as string}</span>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:28})}<strong>{title as string}</strong></div>)}</div><div className="panel"><div className="panel-header"><div><h2>Séquences d'accueil et de présentation</h2><p>Messages existants, prêts à adapter puis à envoyer manuellement.</p></div><a href={raw.config.whatsapp} target="_blank" rel="noopener noreferrer" className="btn btn-primary"><MessageCircle size={16}/> Ouvrir WhatsApp <ExternalLink size={13}/></a></div><div className="event-grid">{raw.events.map((evt:GroupEvent)=><article className="event-card" key={evt.id}><div className="event-head"><Badge tone="blue">{evt.week}</Badge><span>{shortDate(evt.date)}</span></div><h3>{evt.theme}</h3><div className="event-message"><span>MESSAGE D’INVITATION</span><p>{clean(evt.invitation,280)}</p></div><div className="event-controls"><button onClick={()=>copyText(evt.invitation)}><Copy size={15}/> Invitation</button><button onClick={()=>copyText(evt.reminder)}><Clock3 size={15}/> Rappel</button><button onClick={()=>copyText(evt.followUp)}><Send size={15}/> Suivi</button></div></article>)}</div></div><div className="panel whatsapp-disclaimer"><Info size={18}/><p>Les messages s’appuient sur vos dossiers, mais ils ne sont pas expédiés automatiquement. Les tarifs, témoignages et conditions de l'offre doivent être confirmés par les coachs avant communication.</p></div></>}
 
-    {view==='insights'&&<><div className="metrics-grid insights-metrics">{[['Messages reçus','messages',MessageCircle],['Conversations qualifiées','qualified',BadgeCheck],['Inscriptions','registrations',CalendarCheck],['Participants','attendees',Users]].map(([label,key,Icon])=><div className="metric-card metric-input" key={String(key)}><div className="metric-top"><span>{label as string}</span>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:19})}</div><input type="number" min="0" value={ws.metrics[key as keyof typeof ws.metrics]} onChange={e=>modifyWs(brand,w=>({...w,metrics:{...w.metrics,[key as string]:Math.max(0,Number(e.target.value)||0)}}))}/><p>À renseigner manuellement</p></div>)}</div><div className="analytics-layout"><section className="panel"><div className="panel-header"><div><h2>Entonnoir de conversion</h2><p>Des conversations aux participants</p></div><Badge tone="mint">Saisie locale</Badge></div>{[['Messages reçus',ws.metrics.messages],['Conversations qualifiées',ws.metrics.qualified],['Inscriptions',ws.metrics.registrations],['Participants',ws.metrics.attendees]].map(([title,val])=><div className="funnel-line" key={String(title)}><span>{String(title)}</span><div className="track"><div style={{width:`${Math.min(100,Number(val)/Math.max(1,ws.metrics.messages)*100)}%`}}/></div><strong>{Number(val).toLocaleString('fr-FR')}</strong></div>)}<div className="stats-footnote"><Info size={15}/> Ces statistiques ne sont pas synchronisées avec Meta Ads ni WhatsApp Business.</div></section><section className="panel"><div className="panel-header"><div><h2>Votre taux de qualification</h2><p>Calcul sur les saisies de l'équipe</p></div></div><div className="conversion-ring" style={{'--pct':`${Math.min(100,Math.round(ws.metrics.qualified/Math.max(1,ws.metrics.messages)*100))}%`} as React.CSSProperties}><div><strong>{ws.metrics.messages?Math.round(ws.metrics.qualified/ws.metrics.messages*100):0}%</strong><span>Qualifiés / messages</span></div></div><div className="detail-line"><span>Taux de participation</span><strong>{ws.metrics.registrations?Math.round(ws.metrics.attendees/ws.metrics.registrations*100):0}%</strong></div></section></div></>}
+    {view==='insights'&&<><div className="metrics-grid insights-metrics">{[['Messages reçus','messages',MessageCircle],['Conversations qualifiées','qualified',BadgeCheck],['Inscriptions','registrations',CalendarCheck],['Participants','attendees',Users]].map(([label,key,Icon])=><div className="metric-card metric-input" key={String(key)}><div className="metric-top"><span>{label as string}</span>{React.createElement(Icon as React.ComponentType<{size:number}>,{size:19})}</div><input type="number" min="0" value={ws.metrics[key as keyof typeof ws.metrics]} onChange={e=>modifyWs(brand,w=>({...w,metrics:{...w.metrics,[key as string]:Math.max(0,Number(e.target.value)||0)}}))}/><p>À renseigner manuellement</p></div>)}</div><div className="analytics-layout"><section className="panel"><div className="panel-header"><div><h2>Entonnoir de conversion</h2><p>Des conversations aux participants</p></div><Badge tone="mint">Saisie équipe</Badge></div>{[['Messages reçus',ws.metrics.messages],['Conversations qualifiées',ws.metrics.qualified],['Inscriptions',ws.metrics.registrations],['Participants',ws.metrics.attendees]].map(([title,val])=><div className="funnel-line" key={String(title)}><span>{String(title)}</span><div className="track"><div style={{width:`${Math.min(100,Number(val)/Math.max(1,ws.metrics.messages)*100)}%`}}/></div><strong>{Number(val).toLocaleString('fr-FR')}</strong></div>)}<div className="stats-footnote"><Info size={15}/> Ces statistiques ne sont pas synchronisées avec Meta Ads ni WhatsApp Business.</div></section><section className="panel"><div className="panel-header"><div><h2>Votre taux de qualification</h2><p>Calcul sur les saisies de l'équipe</p></div></div><div className="conversion-ring" style={{'--pct':`${Math.min(100,Math.round(ws.metrics.qualified/Math.max(1,ws.metrics.messages)*100))}%`} as React.CSSProperties}><div><strong>{ws.metrics.messages?Math.round(ws.metrics.qualified/ws.metrics.messages*100):0}%</strong><span>Qualifiés / messages</span></div></div><div className="detail-line"><span>Taux de participation</span><strong>{ws.metrics.registrations?Math.round(ws.metrics.attendees/ws.metrics.registrations*100):0}%</strong></div></section></div></>}
 
     {view==='research'&&<div className="intelligence-page">
       <div className="intelligence-hero panel">
         <div><Badge tone="purple">{research.release}</Badge><h2>Éditorial de terrain, pas des slogans recopiés.</h2><p>{research.editorialSignature}</p><div className="research-meta"><span><Badge tone="mint">DONNÉES RÉELLES</Badge> Comptes de la marque</span><span><Badge tone="blue">VEILLE</Badge> Sources publiques</span><span><Badge tone="orange">HYPOTHÈSES</Badge> À tester</span></div></div>
-        <div className="research-score"><span>PUBLICATIONS</span><strong>{stats.posts}</strong><span>{raw.scripts.length} scripts complets · {ws.variants.length} déclinaisons</span></div>
+        <div className="research-score"><span>PUBLICATIONS</span><strong>{stats.posts}</strong><span>{ws.scripts.length} scripts complets · {ws.variants.length} déclinaisons</span></div>
       </div>
       <div className="research-panels">
         <section className="panel"><h3>Ce que disent nos données</h3><p>{research.firstParty.organic}</p><p>{research.firstParty.ads}</p><small>{research.firstParty.warning}</small></section>
@@ -293,7 +307,7 @@ export default function Studio(){
 
     {view==='sources'&&<div className="panel"><div className="panel-header"><div><h2>Bibliothèque de sources</h2><p>Références utilisées pour les contenus et la veille concurrentielle.</p></div><Badge tone="blue">{raw.sources.length} références</Badge></div><div className="source-list">{raw.sources.map(s=><div key={s.id} className="source-row"><div className="source-icon"><BookOpenIcon/></div><div><h3>{s.name}</h3><p>{s.purpose}</p><small>{s.type} · {s.status}</small>{s.caution&&<small className="caution-text">{clean(s.caution,160)}</small>}</div>{s.url?.startsWith('http')?<a href={s.url} target="_blank" rel="noopener noreferrer" className="source-open" title="Voir la référence"><ExternalLink size={17}/></a>:<span className="muted">Référence interne</span>}</div>)}</div></div>}
 
-    {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(['bonas','lzo'] as BrandId[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div><div className="setting-section"><h3>Notes internes</h3><textarea className="settings-notes" rows={6} value={ws.notes} onChange={e=>modifyWs(brand,w=>({...w,notes:e.target.value}))} placeholder="Ajoutez vos consignes, décisions et rappels pour cette marque..."/><small>Enregistrement automatique dans la base Supabase</small></div><div className="setting-section"><h3>Sauvegarde et restauration</h3><p>Données synchronisées via Supabase et accessibles aux membres autorisés. Gardez aussi une sauvegarde JSON.</p><div className="toolbar-buttons"><button className="btn btn-primary" onClick={exportBackup}><Download size={17}/> Exporter toute la sauvegarde</button><button className="btn btn-outline" onClick={()=>importInput.current?.click()}><Upload size={17}/> Importer une sauvegarde</button><input ref={importInput} accept="application/json,.json" type="file" style={{display:'none'}} onChange={e=>importBackup(e.target.files?.[0])}/></div></div></section><aside className="panel security-panel"><div className="security-symbol"><AlertTriangle size={27}/></div><h3>Avant de travailler à plusieurs</h3><p>Cette V1 utilise le stockage du navigateur. Pour synchroniser les modifications entre Sandrine, Laurence et l'équipe, il faudra connecter une base de données, une authentification et des permissions.</p><p>Le déploiement public ne doit pas être considéré comme un espace sécurisé sans protection d'accès.</p><div className="detail-line"><span>Publication auto</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>WhatsApp API</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>Sauvegarde locale</span><Badge tone="mint">Active</Badge></div></aside></div>}
+    {view==='settings'&&<div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2>Paramètres du studio</h2><p>Personnalisez l’espace de travail.</p></div></div><div className="setting-section"><h3>Espaces de marques</h3><div className="brand-cards">{(['bonas','lzo'] as BrandId[]).map(id=><button className={'setting-brand '+(id===brand?'selected':'')} onClick={()=>switchBrand(id)} key={id}><span className="workspace-initial">{BRAND_INFO[id].initial}</span><span><strong>{BRAND_INFO[id].label}</strong><small>{BRAND_INFO[id].person}</small></span>{id===brand&&<Check size={17}/>}</button>)}</div></div><div className="setting-section"><h3>Notes internes</h3><textarea className="settings-notes" rows={6} value={ws.notes} onChange={e=>modifyWs(brand,w=>({...w,notes:e.target.value}))} placeholder="Ajoutez vos consignes, décisions et rappels pour cette marque..."/><small>Enregistrement automatique sur le serveur</small></div><div className="setting-section"><h3>Sauvegarde et restauration</h3><p><strong>Infrastructure :</strong> {backend} · <strong>Statut :</strong> {saveStatus==='saved'?'Enregistré':saveStatus==='error'?'Erreur':'Synchronisation'}</p><button className="btn btn-outline" onClick={signOut}>Se déconnecter</button><p>Les données sont sauvegardées côté serveur et retrouvées sur les autres appareils connectés au même espace.</p><div className="toolbar-buttons"><button className="btn btn-primary" onClick={exportBackup}><Download size={17}/> Exporter toute la sauvegarde</button><button className="btn btn-outline" onClick={()=>importInput.current?.click()}><Upload size={17}/> Importer une sauvegarde</button><input ref={importInput} accept="application/json,.json" type="file" style={{display:'none'}} onChange={e=>importBackup(e.target.files?.[0])}/></div></div></section><aside className="panel security-panel"><div className="security-symbol"><AlertTriangle size={27}/></div><h3>Avant de travailler à plusieurs</h3><p>Cette V1 utilise le stockage du navigateur. Pour synchroniser les modifications entre Sandrine, Laurence et l'équipe, il faudra connecter une base de données, une authentification et des permissions.</p><p>Le déploiement public ne doit pas être considéré comme un espace sécurisé sans protection d'accès.</p><div className="detail-line"><span>Publication auto</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>WhatsApp API</span><Badge tone="orange">Non connectée</Badge></div><div className="detail-line"><span>Stockage privé</span><Badge tone="mint">Sur serveur</Badge></div></aside></div>}
 
    </main>
   </div>

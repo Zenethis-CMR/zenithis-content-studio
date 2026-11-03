@@ -1,42 +1,45 @@
 # Zenithis Content Studio
 
-**Studio de production et de programmation éditoriale pour BONAS-INC et LZO Empire.**
+Éditeur éditorial BONAS-INC et LZO Empire, hébergé sur Vercel. **La version sécurisée enregistre les modifications côté serveur**, et les médias dans un bucket privé.
 
-Interface originale inspirée de conventions d'outils SaaS modernes : tableau de bord, calendrier, flux de programmation, Kanban, médiathèque, éditeur, scripts vidéo, campagnes éditoriales, séminaires WhatsApp, analyses et sources.
+## Infrastructure
 
-## Démarrer
+- **Interface** : Next.js 15, React.
+- **Accès** : mot de passe fort, session HTTP-only, cookie signé HMAC ; aucune clé de stockage dans le navigateur.
+- **Images** : Vercel Blob privé, chaque image sous `media/{bonas|lzo}/{uuid}.{extension}` ; téléchargements via un endpoint authentifié.
+- **Données éditoriales** : l'API `/api/workspaces` stocke les contenus, déclinaisons, scripts éditables, notes et KPI. En l'absence de PostgreSQL, un snapshot JSON est conservé dans Vercel Blob, durable mais **ce n'est pas une base de données relationnelle**.
+- **Base PostgreSQL** : le projet prend en charge Supabase en priorité. Lorsque les variables `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` sont définies et la migration SQL appliquée, l'application transfère automatiquement les données du dernier snapshot Blob dans PostgreSQL si le workspace est absent. Aucune modification manuelle du contenu n'est nécessaire.
+
+## Activer et sécuriser le studio
+
+1. Sur Vercel, connecter un store **Blob privé** au projet ; vérifier que `BLOB_READ_WRITE_TOKEN` existe dans les environnements de production.
+2. Configurer `STUDIO_ADMIN_PASSWORD` (mot de passe robuste) et `STUDIO_SESSION_SECRET` (secret aléatoire indépendant, min. 32 octets) dans **Vercel → Settings → Environment Variables**. Ne jamais écrire ces valeurs dans GitHub ni dans un fichier client.
+3. Redéployer depuis `main`. L'écran de connexion protège tous les contenus modifiables et les téléchargements.
+4. Pour PostgreSQL : créer un projet Supabase, appliquer [`supabase/migrations/20261103_studio_workspaces.sql`](supabase/migrations/20261103_studio_workspaces.sql) dans l'éditeur SQL Supabase. Ajouter `SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` en tant que variables **serveur** Vercel (ne jamais utiliser le préfixe `NEXT_PUBLIC_` pour la clé service-role). Redéployer.
+
+La migration SQL active RLS et révoque l'accès direct public aux tables. Le service-role Supabase est utilisé **uniquement** par des route handlers authentifiés côté serveur. Toute requête de modification concurrente incorrecte reçoit un conflit explicite plutôt que d'écraser silencieusement les données.
+
+## Fonctionnalités enregistrées
+
+- Édition / création de publications et de déclinaisons par réseau.
+- Modification des **scripts vidéo** (accroche, narration et légende).
+- Statuts, dates, notes internes, indicateurs de conversion.
+- Upload d'images JPEG, PNG, WEBP ou GIF jusqu'à 4 Mo. Les fichiers sont privés et restent disponibles après rafraîchissement et entre navigateurs connectés.
+- Export et import JSON de sauvegarde. Si un ancien navigateur possède les données du prototype V2, les documents et médias locaux compatibles sont migrés lors de la première connexion.
+
+## Limitations explicites
+
+- Une connexion d'équipe partagée par mot de passe, **pas encore de comptes individuels ni de rôles par marque**. Supabase Auth + permissions utilisateurs serait une évolution ultérieure.
+- En stockage JSON Blob de secours, les écritures concurrentes sont contrôlées par un ETag, mais PostgreSQL est préférable pour un travail simultané intensif.
+- **Aucune publication automatique** sur les réseaux sociaux ni envoi WhatsApp. Le calendrier est une programmation éditoriale, pas un outil de publication native.
+- Vercel impose une limite de requête ~4,5 Mo aux uploads serveur. Les vidéos volumineuses nécessiteront une route de téléversement direct multipart, à ajouter.
+
+## Développement local
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
-Ouvrir `http://localhost:3000`.
-
-## Déployer sur Vercel
-
-1. Créer un dépôt GitHub privé et y pousser le contenu du projet.
-2. Dans Vercel : `Add New → Project → Import Git Repository`.
-3. Choisir ce dépôt. Framework détecté : **Next.js**. Aucune variable d'environnement nécessaire au prototype.
-4. Activer **Deployment Protection** avant de partager le lien : les calendriers contiennent des données professionnelles.
-
-## Données et limitations de la V1
-
-- Les contenus sont importés de deux classeurs Excel distincts et versionnés dans `data/*.json`.
-- Les modifications, les statuts, les médias personnels de petite taille et les notes persistent **localement dans le navigateur** (`localStorage`). Il n'y a **pas encore de synchronisation entre les membres de l'équipe**, de gestion des comptes ni de base de données serveur. Ne pas utiliser le prototype comme source de vérité unique sans exporter une sauvegarde JSON.
-- La section « Programmation » gère un calendrier **éditorial** ; elle ne publie pas automatiquement sur Facebook, Instagram ou TikTok. Aucune API de publication réseau n'est connectée.
-- Les analytics reflètent le suivi éditorial renseigné dans l'application, et non un flux de métriques Meta en temps réel.
-- La médiathèque comprend des supports fournis par l'utilisateur. Les captures d'écran d'interface tierce ne sont pas incluses ni réutilisées comme création de l'application.
-- Les échanges et messages WhatsApp ne sont pas envoyés automatiquement.
-
-## Préparation production
-
-Pour collaborer entre équipes, ajouter une base de données (ex. PostgreSQL), un système d'identité et de permissions, un stockage média durable (Blob/S3) et les API officielles des réseaux. L'application doit être protégée par authentification avant d'exposer des données privées.
-
-## Organisation
-
-- `app/` : Next.js App Router
-- `components/Studio.tsx` : interface client et fonctionnalités
-- `lib/` : modèles de données et utilitaires
-- `data/` : 56 contenus / 184 variantes / 16 scripts / 8 séquences WhatsApp par marque
-- `public/media/` : supports utilisateur approuvés
+Les secrets restent uniquement dans `.env.local` ou les variables Vercel. `npm run typecheck` et `npm run build` vérifient le projet.
