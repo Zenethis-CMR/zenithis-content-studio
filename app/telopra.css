@@ -1,0 +1,116 @@
+/* Zenithis Content Studio — TeloPra monitoring, matching the Studio UI. */
+.telopra-panel{padding:20px;margin:0 0 17px;min-width:0}
+.telopra-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.telopra-heading-title{display:flex;align-items:flex-start;gap:13px;min-width:0}
+.telopra-brand{display:grid;place-items:center;flex:none;width:46px;height:46px;border-radius:14px;background:#e4f9ed;color:#25d366}
+.telopra-eyebrow{font-size:9px;letter-spacing:1px;color:#188851;font-weight:900}
+.telopra-heading h2{font-size:19px;line-height:1.25;color:#152c50;margin:5px 0}
+.telopra-heading p{font-size:11px;line-height:1.6;color:#7183a1;margin:0}
+.telopra-state{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#9a6744;background:#fff5eb;border:1px solid #fae3cf;border-radius:30px;white-space:nowrap;padding:9px 12px}
+.telopra-state-online{color:#16794f;background:#e7fbf1;border-color:#b8ebd2}
+.telopra-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin:15px 0}
+.telopra-kpi{min-width:0;padding:15px 17px;background:#f6faff;border:1px solid #e7eef9;border-radius:13px;display:grid;grid-template-columns:28px 1fr;gap:1px 8px;align-items:center}
+.telopra-kpi>svg{grid-row:1 / 3;color:#3f7ddd}
+.telopra-kpi strong{color:#1a3660;font-size:23px;line-height:1.2}
+.telopra-kpi .telopra-kpi-date{font-size:12px}
+.telopra-kpi span{color:#8090aa;font-size:10px;margin-top:3px}
+.telopra-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:16px 0}
+.telopra-actions .btn{min-height:39px;display:inline-flex;align-items:center;gap:8px}
+.telopra-actions .telopra-instance{display:inline-flex;gap:6px;align-items:center;min-width:0;color:#627a99;font-size:11px;margin-right:auto;overflow-wrap:anywhere}
+.telopra-instance svg{color:#4e82c5;flex:none}
+.telopra-help{display:inline-flex;gap:7px;align-items:center;color:#7788a0;font-size:11px}
+.telopra-notice,.telopra-error{display:flex;gap:9px;align-items:flex-start;font-size:11px;line-height:1.6;padding:11px 12px;border-radius:10px;margin:10px 0;overflow-wrap:anywhere}
+.telopra-notice{color:#176748;background:#ecfff4;border:1px solid #d3f0dc}
+.telopra-error{color:#a3483f;background:#fff3ef;border:1px solid #f8d7cf}
+.telopra-notice svg,.telopra-error svg{flex:none;margin-top:1px}
+.telopra-connect-form{border:1px solid #d4e6f7;border-radius:15px;background:linear-gradient(120deg,#f9fcff,#f0f9f5);padding:17px;margin:17px 0 20px}
+.telopra-form-title{display:flex;gap:10px;align-items:flex-start;margin:0 0 15px;color:#2b6fb7}
+.telopra-form-title svg{flex:none}
+.telopra-form-title strong{font-size:13px;display:block;color:#1f365c}
+.telopra-form-title small{display:block;color:#688099;font-size:11px;line-height:1.6;margin:4px 0}
+.telopra-form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+.telopra-form-grid label{font-size:11px;font-weight:800;color:#354d72;min-width:0;display:grid;gap:7px}
+.telopra-form-grid input{height:43px;width:100%;min-width:0;border-radius:10px;border:1px solid #d8e5f5;background:#fff;padding:9px 11px;outline-color:#76a5eb;color:#243a5c}
+.telopra-secret-field{position:relative;display:flex;align-items:center}
+.telopra-secret-field>input{padding-right:43px}
+.telopra-secret-field>button{position:absolute;right:3px;top:3px;width:36px;height:37px;border:0;border-radius:8px;background:transparent;color:#7789a4;display:grid;place-items:center}
+.telopra-form-note{display:flex;align-items:flex-start;gap:8px;color:#6a7e9b;font-size:10px;line-height:1.6;margin:13px 0}
+.telopra-form-note>svg{flex:none}
+.telopra-form-note code{color:#225ca4;background:#e7f0ff;border-radius:5px;padding:1px 4px}
+.telopra-connect-form>.btn{display:inline-flex;align-items:center;gap:8px;min-height:43px}
+.telopra-feed{border:1px solid #e5ecf8;border-radius:14px;overflow:hidden}
+.telopra-feed-head{display:flex;justify-content:space-between;gap:12px;align-items:center;background:#f9fbff;padding:15px 17px;border-bottom:1px solid #e9eff9}
+.telopra-feed-head h3{font-size:13px;color:#223d65;margin:0 0 5px}
+.telopra-feed-head span,.telopra-feed-head>small{font-size:10px;color:#8a9bb1}
+.telopra-feed-head>small{white-space:nowrap}
+.telopra-chat-layout{display:grid;grid-template-columns:minmax(230px,35%) minmax(0,1fr);min-height:290px;max-height:510px}
+.telopra-chat-list{min-width:0;overflow-y:auto;border-right:1px solid #e6edf8}
+.telopra-chat-search{display:flex;align-items:center;gap:8px;padding:12px;color:#7897b8;position:sticky;top:0;z-index:1;background:#fff;border-bottom:1px solid #edf1f9}
+.telopra-chat-search input{min-width:0;width:100%;border:0;outline:0;font-size:12px;color:#273c60}
+.telopra-chat-item{display:flex;gap:9px;align-items:center;min-width:0;width:100%;border:0;border-bottom:1px solid #f0f3f9;padding:12px 10px;background:#fff;text-align:left}
+.telopra-chat-item:hover,.telopra-chat-item-active{background:#edf7ff}
+.telopra-chat-avatar{width:35px;height:35px;flex:none;border-radius:50%;display:grid;place-items:center;background:#dff9ec;color:#209662}
+.telopra-chat-meta{min-width:0;flex:1;display:grid;gap:5px}
+.telopra-chat-meta strong{font-size:11px;color:#253e64;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.telopra-chat-meta small{font-size:10px;color:#8e9eb4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.telopra-chat-end{display:grid;justify-items:center;gap:5px;color:#a0afc5;flex:none}
+.telopra-chat-end b{display:grid;place-items:center;border-radius:50%;min-width:18px;min-height:18px;background:#25d366;color:#fff;font-size:10px}
+.telopra-message-area{min-width:0;background:#f8fafc;display:flex;flex-direction:column}
+.telopra-selected-chat{display:grid;gap:4px;padding:13px 16px;background:#fff;border-bottom:1px solid #e6edf8}
+.telopra-selected-chat strong{font-size:12px;color:#1d385c;overflow-wrap:anywhere}
+.telopra-selected-chat small{font-size:10px;color:#8194b1}
+.telopra-message-scroll{flex:1;min-height:0;overflow-y:auto;padding:17px 18px;display:flex;flex-direction:column;gap:11px}
+.telopra-message{max-width:85%;align-self:flex-start;min-width:0;background:#fff;border:1px solid #e8edf4;border-radius:13px 13px 13px 2px;padding:10px 12px;box-shadow:0 2px 7px #1b4c8710}
+.telopra-message-out{align-self:flex-end;background:#e4f9eb;border-color:#c9edda;border-radius:13px 13px 2px 13px}
+.telopra-message p{font-size:12px;line-height:1.55;color:#2c4961;margin:0 0 6px;white-space:pre-wrap;overflow-wrap:anywhere}
+.telopra-message small{display:block;font-size:9px;color:#879aa5;text-align:right}
+.telopra-chat-placeholder,.telopra-empty{display:grid;gap:9px;justify-items:center;align-content:center;padding:45px 18px;color:#7c91ac;text-align:center}
+.telopra-chat-placeholder>svg,.telopra-empty>svg{color:#25d366}
+.telopra-chat-placeholder strong,.telopra-empty strong{color:#2b4764;font-size:13px}
+.telopra-chat-placeholder p,.telopra-empty p{color:#8094ab;line-height:1.6;font-size:11px;margin:0;max-width:410px}
+.telopra-feed-empty{padding:20px;color:#91a0b3;text-align:center;font-size:11px}
+.telopra-footnote{font-size:10px;color:#93a0b2;line-height:1.65;margin:12px 0 0}
+
+@media(max-width:900px){
+ .telopra-form-grid{grid-template-columns:1fr 1fr}
+ .telopra-form-grid label:last-child{grid-column:1 / -1}
+}
+@media(max-width:780px){
+ .telopra-panel{padding:13px;margin-bottom:12px}
+ .telopra-heading{display:grid;gap:11px}
+ .telopra-heading-title{gap:10px}
+ .telopra-brand{width:39px;height:39px;border-radius:12px}
+ .telopra-eyebrow{font-size:8.5px}
+ .telopra-heading h2{font-size:16px}
+ .telopra-heading p{font-size:11px}
+ .telopra-state{justify-self:start;padding:7px 10px}
+ .telopra-kpis{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+ .telopra-kpi{padding:10px 7px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+ .telopra-kpi>svg{width:16px;height:16px}
+ .telopra-kpi strong{font-size:19px}
+ .telopra-kpi .telopra-kpi-date{font-size:10px;overflow-wrap:anywhere}
+ .telopra-kpi span{font-size:9px;line-height:1.4}
+ .telopra-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+ .telopra-instance{grid-column:1 / -1}
+ .telopra-actions .btn{justify-content:center;min-height:44px;padding:8px;font-size:11px}
+ .telopra-connect-form{padding:12px}
+ .telopra-form-grid{grid-template-columns:1fr}
+ .telopra-form-grid label:last-child{grid-column:auto}
+ .telopra-form-grid input{font-size:16px;min-height:45px}
+ .telopra-connect-form>.btn{width:100%;justify-content:center}
+ .telopra-form-note{display:block;overflow-wrap:anywhere}
+ .telopra-feed-head{padding:12px;align-items:start}
+ .telopra-feed-head>small{font-size:9px}
+ .telopra-chat-layout{display:flex;flex-direction:column;max-height:none}
+ .telopra-chat-list{max-height:300px;border-right:0;border-bottom:1px solid #e6edf8}
+ .telopra-chat-item{min-height:61px}
+ .telopra-message-area{min-height:270px;max-height:440px}
+ .telopra-chat-placeholder,.telopra-empty{padding:30px 13px}
+ .telopra-message-scroll{max-height:340px;padding:12px}
+}
+@media(max-width:370px){
+ .telopra-kpi{padding:8px 5px}
+ .telopra-kpi strong{font-size:16px}
+ .telopra-actions{grid-template-columns:1fr}
+ .telopra-instance{grid-column:auto}
+}
