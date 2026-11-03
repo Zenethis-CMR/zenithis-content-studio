@@ -29,6 +29,10 @@ type LocalWorkspace = PersistentWorkspace;
 type BrandRole = 'owner' | 'editor' | 'viewer';
 type AccessState = {isSuperadmin:boolean;roles:Partial<Record<BrandId,BrandRole>>;allowedBrands:BrandId[]};
 type GrantRow = {email:string;brand_id:BrandId;role:BrandRole;created_at?:string};
+type DeletedContent = {
+ brand:BrandId; post:ContentPost; variants:ChannelVariant[]; index:number;
+ wasRecentlyCreated:boolean;
+};
 const emptyMetrics={messages:0,qualified:0,registrations:0,attendees:0};
 const initialWorkspace=(id:BrandId):LocalWorkspace=>({posts:[],variants:[],media:seededMedia.filter(x=>x.brand===id),metrics:{...emptyMetrics},notes:''});
 const initialAll=():Record<BrandId,LocalWorkspace>=>({bonas:initialWorkspace('bonas'),lzo:initialWorkspace('lzo')});
@@ -147,6 +151,9 @@ export default function Studio(){
  const [editorDraft,setEditorDraft]=useState<Partial<ContentPost>>({});
  const [editTab,setEditTab]=useState<'contenu'|'declinaisons'>('contenu');
  const [newModal,setNewModal]=useState(false);
+ const [deleteCandidate,setDeleteCandidate]=useState<{brand:BrandId;postId:string}|null>(null);
+ const [deletedContent,setDeletedContent]=useState<DeletedContent|null>(null);
+ const [recentlyCreated,setRecentlyCreated]=useState<{brand:BrandId;postId:string}|null>(null);
  const [variantId,setVariantId]=useState('');
  const [variantDraft,setVariantDraft]=useState<Partial<ChannelVariant>>({});
  const fileInput=useRef<HTMLInputElement>(null);
@@ -325,6 +332,14 @@ export default function Studio(){
   return()=>timeouts.forEach(clearTimeout);
  },[workspaces,ready,user?.id,access]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t)},[toast]);
+ // The undo action is intentionally longer-lived than an ordinary notification.
+ useEffect(()=>{if(!deletedContent)return;const t=setTimeout(()=>setDeletedContent(null),15000);return()=>clearTimeout(t)},[deletedContent]);
+ useEffect(()=>{
+  if(!deleteCandidate)return;
+  const cancel=(event:KeyboardEvent)=>{if(event.key==='Escape')setDeleteCandidate(null)};
+  document.addEventListener('keydown',cancel);
+  return()=>document.removeEventListener('keydown',cancel);
+ },[deleteCandidate]);
  const info=BRAND_INFO[brand], raw=libraries[brand], ws=workspaces[brand];
  const allPosts=ws.posts;
  const selectedPost=allPosts.find(p=>p.id===selectedPostId) || null;
@@ -373,6 +388,48 @@ export default function Studio(){
  };
  const updatePost=(id:string,patch:Partial<ContentPost>)=>{if(!canEdit(brand)){notify('Lecture seule','warning');return}modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===id?{...p,...patch}:p)}));notify('Contenu mis à jour dans cet espace de travail')};
  const updateVariant=(id:string,patch:Partial<ChannelVariant>)=>{if(!canEdit(brand)){notify('Lecture seule','warning');return}modifyWs(brand,w=>({...w,variants:w.variants.map(v=>v.id===id?{...v,...patch}:v)}));notify('Déclinaison enregistrée')};
+ const deletePost=(postBrand:BrandId,postId:string)=>{
+  if(!canEdit(postBrand)){notify('Accès en lecture seule','warning');return}
+  const workspace=workspaces[postBrand];
+  const index=workspace.posts.findIndex(p=>p.id===postId);
+  if(index<0){setDeleteCandidate(null);notify('Ce contenu n’existe plus.','warning');return}
+  const current=workspace.posts[index];
+  // Keep a recoverable snapshot of the post and its channel variants.
+  const post=postBrand===brand&&selectedPostId===postId?{...current,...editorDraft}:current;
+  const variants=workspace.variants.filter(v=>v.postId===postId);
+  const wasRecentlyCreated=recentlyCreated?.brand===postBrand&&recentlyCreated.postId===postId;
+  modifyWs(postBrand,w=>({
+   ...w,posts:w.posts.filter(p=>p.id!==postId),
+   variants:w.variants.filter(v=>v.postId!==postId)
+  }));
+  setDeletedContent({brand:postBrand,post,variants,index,wasRecentlyCreated});
+  setRecentlyCreated(prev=>prev?.brand===postBrand&&prev.postId===postId?null:prev);
+  if(selectedPostId===postId&&brand===postBrand){
+   setSelectedPostId('');setEditorDraft({});setVariantId('');setVariantDraft({});
+   setView('planning');
+  }
+  setDeleteCandidate(null);
+ };
+ const restoreDeletedPost=()=>{
+  if(!deletedContent)return;
+  const recovery=deletedContent;
+  if(!canEdit(recovery.brand)){notify('Restauration non autorisée.','warning');return}
+  modifyWs(recovery.brand,w=>{
+   if(w.posts.some(p=>p.id===recovery.post.id))return w;
+   const posts=[...w.posts];
+   posts.splice(Math.min(recovery.index,posts.length),0,recovery.post);
+   const variantIds=new Set(w.variants.map(v=>v.id));
+   return {...w,posts,variants:[...w.variants,...recovery.variants.filter(v=>!variantIds.has(v.id))]};
+  });
+  if(recovery.wasRecentlyCreated)setRecentlyCreated({brand:recovery.brand,postId:recovery.post.id});
+  setBrand(recovery.brand);setSelectedPostId(recovery.post.id);setEditorDraft({});setEditTab('contenu');
+  setView('editor');setDeletedContent(null);
+  notify('Le contenu et ses déclinaisons ont été restaurés.');
+ };
+ const askDeletePost=(postBrand:BrandId,postId:string)=>{
+  if(!canEdit(postBrand)){notify('Accès en lecture seule','warning');return}
+  setDeleteCandidate({brand:postBrand,postId});
+ };
  const jumpToPost=(id:string,where:View='editor')=>{setSelectedPostId(id);setEditorDraft({});setEditTab('contenu');setView(where);setMobileMenu(false)};
  const exportBackup=()=>{
   if(!access)return;
@@ -396,7 +453,7 @@ export default function Studio(){
  };
  const addPost=()=>{
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
-  const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'Ambition & quotidien':'Expérience & liberté',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Dis-moi en privé ce que tu veux explorer.':'Écris-moi pour découvrir les étapes.',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
+  const id=brand.toUpperCase()+'-NEW-'+crypto.randomUUID();const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'Ambition & quotidien':'Expérience & liberté',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Dis-moi en privé ce que tu veux explorer.':'Écris-moi pour découvrir les étapes.',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setRecentlyCreated({brand,postId:id});setView('editor');notify('Brouillon créé. Vous pouvez annuler sa création depuis l’éditeur.')};
  const mediaUpload=async(file:File|undefined,associatePostId?:string)=>{
   if(!file||!user||!studioClient)return;
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
@@ -695,7 +752,7 @@ export default function Studio(){
 
     {view==='planning'&&<section className="panel panel-no-padding"><div className="panel-header padded"><div><h2>File de programmation</h2><p>Planifier, réviser et marquer vos contenus comme publiés.</p></div><Badge tone="blue">{filtered.length} publications</Badge></div><div className="padded filter-line">{ToolbarFilters()}</div><div className="table-scroll"><table className="content-table detailed-table"><thead><tr><th>Contenu</th><th>Réseaux</th><th>Date</th><th>Étape</th><th>Statut</th><th>Action</th></tr></thead><tbody>{filtered.map(p=><tr key={p.id} tabIndex={0} className="navigable-table-row" title={'Ouvrir '+p.title}
  onClick={e=>activateBlock(e,()=>openEditor(p))}
- onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}><td><div className="content-table-title"><ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span><button className="row-title" onClick={()=>openEditor(p)}>{p.title}</button><small>{clean(p.caption,95)}</small></span></div></td><td><div className="channel-row">{p.channels.slice(0,5).map((c,i)=><Channel key={i} name={c} small/>)}</div></td><td className="nowrap">{shortDate(p.date)} · {p.time}</td><td><span className="muted">{p.stage}</span></td><td><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge></td><td><div className="row-actions"><button title="Éditer" onClick={()=>openEditor(p)}><Pencil size={15}/></button><button title="Programmer dans le planning local" onClick={()=>updatePost(p.id,{status:'Programmé'})}><CalendarCheck size={15}/></button><button title="Marquer publié (aucune publication externe)" onClick={()=>updatePost(p.id,{status:'Publié'})}><Check size={15}/></button></div></td></tr>)}</tbody></table></div>{filtered.length===0&&<div className="empty">Aucun contenu pour ces filtres.</div>}</section>}
+ onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}><td><div className="content-table-title"><ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span><button className="row-title" onClick={()=>openEditor(p)}>{p.title}</button><small>{clean(p.caption,95)}</small></span></div></td><td><div className="channel-row">{p.channels.slice(0,5).map((c,i)=><Channel key={i} name={c} small/>)}</div></td><td className="nowrap">{shortDate(p.date)} · {p.time}</td><td><span className="muted">{p.stage}</span></td><td><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge></td><td><div className="row-actions"><button title="Éditer" onClick={()=>openEditor(p)}><Pencil size={15}/></button><button title="Programmer dans le planning local" onClick={()=>updatePost(p.id,{status:'Programmé'})}><CalendarCheck size={15}/></button><button title="Marquer publié (aucune publication externe)" onClick={()=>updatePost(p.id,{status:'Publié'})}><Check size={15}/></button><button type="button" className="row-delete-btn" title={'Supprimer « '+p.title+' »'} aria-label={'Supprimer le contenu '+p.title} disabled={!canEdit(brand)} onClick={e=>{e.stopPropagation();askDeletePost(brand,p.id)}}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>{filtered.length===0&&<div className="empty">Aucun contenu pour ces filtres.</div>}</section>}
 
     {view==='calendar'&&<section className="calendar-layout"><div className="panel calendar-main"><div className="calendar-head"><div className="calendar-title"><h2>{monthLabel(calendarMonth)}</h2><span>{allPosts.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length} contenus</span></div><div className="calendar-actions"><button type="button" className={'btn btn-outline calendar-v3-toggle'+(showCloserPreviews?' calendar-v3-on':'')}
  onClick={()=>setShowCloserPreviews(v=>!v)} aria-pressed={showCloserPreviews} title="Changer les titres affichés sans modifier les contenus enregistrés">
@@ -787,7 +844,14 @@ export default function Studio(){
      <div className="panel media-backend-note"><FolderOpen size={20}/><div><strong>Stockage évolutif</strong><p>Supabase privé est actif. Pour de gros volumes vidéo, nous pourrons connecter un stockage objet compatible S3 sur Proxmox (MinIO ou Ceph) via des liens signés et une passerelle sécurisée. Aucun stockage Proxmox n’est connecté pour le moment.</p></div></div>
     </>}
 
-    {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons"><button className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button><button className="btn btn-primary" disabled={!selectedPost} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span><strong>{clean(p.title,55)}</strong><small>{shortDate(p.date)} · {labelForType(p.type)}</small></span></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-cover-studio">
+    {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons">
+ <button type="button" className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button>
+ {selectedPost&&canEdit(brand)&&(
+  recentlyCreated?.brand===brand&&recentlyCreated.postId===selectedPost.id?
+   <button type="button" className="btn content-delete-btn" onClick={()=>deletePost(brand,selectedPost.id)}><RotateCcw size={16}/> Annuler la création</button>:
+   <button type="button" className="btn content-delete-btn" onClick={()=>askDeletePost(brand,selectedPost.id)}><Trash2 size={16}/> Supprimer</button>
+ )}
+ <button className="btn btn-primary" disabled={!selectedPost||!canEdit(brand)} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span><strong>{clean(p.title,55)}</strong><small>{shortDate(p.date)} · {labelForType(p.type)}</small></span></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-cover-studio">
  <div className="editor-cover-preview"><ContentThumbnail post={selectedPost} assets={ws.media} brand={brand} size="hero"/></div>
  <div className="editor-cover-tools">
   <span className="editor-cover-eyebrow"><Images size={15}/> DIRECTION VISUELLE</span>
@@ -1022,6 +1086,31 @@ export default function Studio(){
      <Menu size={22}/><span>Modules</span>
    </button>
   </nav>
+  {deleteCandidate&&(()=>{
+   const target=workspaces[deleteCandidate.brand].posts.find(p=>p.id===deleteCandidate.postId);
+   if(!target)return null;
+   const variants=workspaces[deleteCandidate.brand].variants.filter(v=>v.postId===target.id).length;
+   return <div className="modal-layer" onMouseDown={e=>{if(e.target===e.currentTarget)setDeleteCandidate(null)}}>
+    <div className="modal-card delete-content-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-content-title" aria-describedby="delete-content-description">
+     <div className="modal-heading"><div><span className="modal-icon delete-content-icon"><Trash2 size={23}/></span>
+      <h2 id="delete-content-title">Supprimer cette publication ?</h2>
+      <p>Cette action concerne uniquement {BRAND_INFO[deleteCandidate.brand].label}.</p></div>
+      <IconButton onClick={()=>setDeleteCandidate(null)} title="Annuler la suppression"><X size={20}/></IconButton>
+     </div>
+     <div className="modal-content"><div className="delete-content-preview"><strong>{target.title}</strong><small>{shortDate(target.date)} · {labelForType(target.type)} · {normalizeStatus(target.status)}</small></div>
+      <p id="delete-content-description">La publication disparaîtra du calendrier, de la programmation et du Kanban. {variants>0?variants+' déclinaison(s) liées seront également retirées. ':''}Les images et vidéos de la médiathèque resteront disponibles.</p>
+      <p className="delete-content-warning">Vous pourrez annuler cette suppression pendant 15 secondes.</p>
+     </div>
+     <footer><button type="button" className="btn btn-outline" onClick={()=>setDeleteCandidate(null)}>Conserver le contenu</button>
+      <button type="button" className="btn content-delete-confirm" disabled={!canEdit(deleteCandidate.brand)} onClick={()=>deletePost(deleteCandidate.brand,target.id)}><Trash2 size={16}/> Supprimer le contenu</button></footer>
+    </div>
+   </div>;
+  })()}
+  {deletedContent&&<div className="undo-content-toast" role="status" aria-live="polite">
+   <span><CircleCheck size={18}/> « {clean(deletedContent.post.title,49)} » supprimé.</span>
+   <button type="button" onClick={restoreDeletedPost}><RotateCcw size={16}/> Annuler</button>
+   <button type="button" className="undo-dismiss" onClick={()=>setDeletedContent(null)} aria-label="Fermer la notification"><X size={16}/></button>
+  </div>}
   {newModal&&<div className="modal-layer" onMouseDown={e=>{if(e.target===e.currentTarget)setNewModal(false)}}><div className="modal-card"><div className="modal-heading"><div><span className="modal-icon"><Plus size={23}/></span><h2>Nouveau contenu</h2><p>Créer une nouvelle idée dans {info.label}</p></div><IconButton onClick={()=>setNewModal(false)}><X size={20}/></IconButton></div><div className="modal-content"><p>Un nouveau brouillon sera ajouté au calendrier éditorial. Tu pourras immédiatement modifier son titre, son texte, les plateformes et sa date.</p><div className="modal-preview"><PenSquare size={21}/><span><strong>Publication · À produire</strong><small>Votre brouillon sera enregistré dans Supabase pour cette marque.</small></span></div></div><footer><button className="btn btn-outline" onClick={()=>setNewModal(false)}>Annuler</button><button className="btn btn-primary" onClick={addPost}>Créer le brouillon <ArrowRight size={15}/></button></footer></div></div>}
   {toast&&<div className={'toast '+(toast.kind||'success')} role="status">{toast.kind==='warning'?<AlertTriangle size={17}/>:<CircleCheck size={17}/>} {toast.message}<button onClick={()=>setToast(null)}><X size={14}/></button></div>}
  </div>;
