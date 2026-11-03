@@ -9,7 +9,7 @@ import {
   Eye, Send, FileText, Play, MoreHorizontal, Sparkles, LayoutGrid, List, Menu,
   Bookmark, Pencil, Trash2, MoveRight, Target, TrendingUp, ArrowRight, Activity,
   MapPin, ClipboardCheck, Info, RotateCcw, CircleAlert, SlidersHorizontal, Link2, LogOut,
-  FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
+  FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb, Film,
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle, Mail
 } from 'lucide-react';
 import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
@@ -18,6 +18,7 @@ import {TeloPraPanel} from './TeloPraPanel';
 import {closingPlaybooks,closerStageNames} from '@/lib/closing-playbooks';
 import {editorialAlternatives,campaignDreams,campaignWeekThemes} from '@/lib/editorial-closer-v2';
 import {createContentExample} from '@/lib/content-examples';
+import {ContentThumbnail} from './ContentThumbnail';
 import {parseStudioRoute,serializeStudioRoute} from '@/lib/studio-routing';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
 import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
@@ -149,6 +150,13 @@ export default function Studio(){
  const [variantId,setVariantId]=useState('');
  const [variantDraft,setVariantDraft]=useState<Partial<ChannelVariant>>({});
  const fileInput=useRef<HTMLInputElement>(null);
+ const editorFileInput=useRef<HTMLInputElement>(null);
+ const [uploadBusy,setUploadBusy]=useState(false);
+ const [showStockImport,setShowStockImport]=useState(false);
+ const [stockConfirmed,setStockConfirmed]=useState(false);
+ const [stockUrl,setStockUrl]=useState('');
+ const [stockSource,setStockSource]=useState('');
+ const [stockCredit,setStockCredit]=useState('');
  const importInput=useRef<HTMLInputElement>(null);
 
  // Route hydration and browser history. The URL remains the source of truth on refresh/back/forward.
@@ -389,15 +397,58 @@ export default function Studio(){
  const addPost=()=>{
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
   const id=brand.toUpperCase()+'-NEW-'+Math.floor(Date.now()/1000);const post:ContentPost={id,date:'2026-11-09',week:'S1',day:'Lundi',time:'18:30',type:'Publication',stage:'Découverte',pillar:brand==='bonas'?'Ambition & quotidien':'Expérience & liberté',title:'Nouveau contenu',caption:'Ajoutez votre texte ici.',cta:brand==='bonas'?'Dis-moi en privé ce que tu veux explorer.':'Écris-moi pour découvrir les étapes.',channels:['Facebook'],script:'',duration:'',asset:'',hashtags:'',sources:'',production:'',status:'Idée',eventDate:'',proof:'',assignee:info.person,dmLink:raw.config.whatsapp,groupLink:''};modifyWs(brand,w=>({...w,posts:[...w.posts,post]}));setSelectedPostId(id);setEditorDraft({});setNewModal(false);setView('editor');notify('Nouveau brouillon créé')};
- const mediaUpload=async(file:File|undefined)=>{
+ const mediaUpload=async(file:File|undefined,associatePostId?:string)=>{
   if(!file||!user||!studioClient)return;
   if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
+  setUploadBusy(true);
   setDbMessage('Envoi du fichier dans Supabase Storage…');
   try{
     const asset=await uploadStudioMedia(file,brand);
-    modifyWs(brand,w=>({...w,media:[asset,...w.media]}));
-    notify('Fichier téléversé dans Supabase Storage et ajouté à la médiathèque');
+    modifyWs(brand,w=>({
+      ...w,media:[asset,...w.media],
+      posts:associatePostId?w.posts.map(p=>p.id===associatePostId?{...p,coverMediaId:asset.id,mediaIds:[...new Set([...(p.mediaIds||[]),asset.id])]}:p):w.posts
+    }));
+    setSelectedMediaId(asset.id);
+    notify(asset.kind==='Vidéo'?'Vidéo importée avec aperçu, disponible dans la médiathèque':'Fichier importé dans la médiathèque');
   }catch(e){notify('Échec du téléversement : '+(e instanceof Error?e.message:String(e)),'warning')}
+  finally{setUploadBusy(false);if(fileInput.current)fileInput.current.value='';if(editorFileInput.current)editorFileInput.current.value=''}
+ };
+ const importStockPhoto=()=>{
+  if(!canEdit(brand)){notify('Lecture seule','warning');return}
+  try{
+   const url=new URL(stockUrl.trim());
+   const source=new URL(stockSource.trim());
+   if(url.protocol!=='https:'||source.protocol!=='https:')throw new Error('Adresses HTTPS requises');
+   if(!['images.unsplash.com','images.pexels.com'].includes(url.hostname))throw new Error('Image à télécharger depuis Unsplash ou Pexels (lien direct de l’image).');
+   if(!['unsplash.com','www.unsplash.com','pexels.com','www.pexels.com'].includes(source.hostname))throw new Error('Ajoutez le lien de la fiche originale Unsplash ou Pexels.');
+   if(!stockConfirmed)throw new Error('Confirmez que les droits d’utilisation du média ont été vérifiés.');
+   const item:MediaAsset={id:'stock-'+crypto.randomUUID(),brand,kind:'Image',
+    name:stockCredit.trim()?'Image libre de droits · '+stockCredit.trim():'Image libre de droits',
+    src:url.toString(),format:'Image distante',created:new Date().toISOString().slice(0,10),
+    provider:'remote',origin:'stock',licenseUrl:source.toString(),credit:stockCredit.trim(),
+    note:'Visuel provenant d’une banque d’images; droits et autorisations à vérifier avant publication.'};
+   modifyWs(brand,w=>({...w,media:[item,...w.media]}));
+   setSelectedMediaId(item.id);setStockUrl('');setStockSource('');setStockCredit('');setStockConfirmed(false);setShowStockImport(false);
+   notify('Image de banque ajoutée à la médiathèque');
+  }catch(e){notify(e instanceof Error?e.message:'Adresse invalide','warning')}
+ };
+ const toggleCarouselMedia=(postId:string,assetId:string)=>{
+  if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
+  modifyWs(brand,w=>({...w,posts:w.posts.map(p=>{
+   if(p.id!==postId)return p;
+   const existing=p.mediaIds||[];
+   const has=existing.includes(assetId);
+   const mediaIds=has?existing.filter(id=>id!==assetId):[...existing,assetId];
+   return {...p,mediaIds,coverMediaId:mediaIds.includes(p.coverMediaId||'')?p.coverMediaId:mediaIds[0]};
+  })}));
+ };
+ const setPostCover=(postId:string,id:string)=>{
+  if(!canEdit(brand)){notify('Accès en lecture seule','warning');return}
+  modifyWs(brand,w=>({...w,posts:w.posts.map(p=>p.id===postId?{
+   ...p,coverMediaId:id||undefined,
+   mediaIds:id?[...new Set([...(p.mediaIds||[]),id])]:p.mediaIds
+  }:p)}));
+  notify(id?'Visuel associé à la publication':'Visuel principal dissocié');
  };
  const manageableBrands=(access?.allowedBrands||[]).filter(id=>canManage(id));
  const refreshGrantRows=async()=>{
@@ -514,12 +565,12 @@ export default function Studio(){
  const banner=pageMeta[view]; const BannerIcon=banner.icon;
  const research=raw.research;
 
- const workChip=(p:ContentPost)=><button type="button" className="post-chip" key={p.id} onClick={()=>openEditor(p)} title={'Éditer '+p.title}><span className={'chip-dot '+statusClass(p.status)}/><span>{clean(p.title,40)}</span><span className="chip-hour">{p.time}</span></button>;
+ const workChip=(p:ContentPost)=><button type="button" className="post-chip" key={p.id} onClick={()=>openEditor(p)} title={'Éditer '+p.title}><ContentThumbnail post={p} assets={ws.media} brand={brand} size="micro"/><span>{clean(p.title,40)}</span><span className="chip-hour">{p.time}</span></button>;
  const PostCard=({p,compact=false}:{p:ContentPost;compact?:boolean})=><article
   className={'post-card navigable-block '+(compact?'post-card-compact':'')} key={p.id}
   role="link" tabIndex={0} aria-label={'Ouvrir le contenu '+p.title}
   onClick={()=>openEditor(p)} onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}>
-   <div className="post-media"><div className={'post-media-glyph '+(p.type.toLowerCase().includes('video')?'video-tint':'')}><FileText size={compact?16:22}/></div></div>
+   <div className="post-media"><ContentThumbnail post={p} assets={ws.media} brand={brand} size={compact?'compact':'card'}/></div>
    <div className="post-card-body"><strong className="post-card-title">{p.title}</strong><p>{clean(p.caption,compact?75:105)}</p><div className="card-meta"><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge>{!compact&&<span>{shortDate(p.date)} · {p.time}</span>}</div></div>
    <ArrowUpRight className="post-card-arrow" aria-hidden size={16}/>
   </article>;
@@ -644,12 +695,12 @@ export default function Studio(){
 
     {view==='planning'&&<section className="panel panel-no-padding"><div className="panel-header padded"><div><h2>File de programmation</h2><p>Planifier, réviser et marquer vos contenus comme publiés.</p></div><Badge tone="blue">{filtered.length} publications</Badge></div><div className="padded filter-line">{ToolbarFilters()}</div><div className="table-scroll"><table className="content-table detailed-table"><thead><tr><th>Contenu</th><th>Réseaux</th><th>Date</th><th>Étape</th><th>Statut</th><th>Action</th></tr></thead><tbody>{filtered.map(p=><tr key={p.id} tabIndex={0} className="navigable-table-row" title={'Ouvrir '+p.title}
  onClick={e=>activateBlock(e,()=>openEditor(p))}
- onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}><td><button className="row-title" onClick={()=>openEditor(p)}>{p.title}</button><small>{clean(p.caption,95)}</small></td><td><div className="channel-row">{p.channels.slice(0,5).map((c,i)=><Channel key={i} name={c} small/>)}</div></td><td className="nowrap">{shortDate(p.date)} · {p.time}</td><td><span className="muted">{p.stage}</span></td><td><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge></td><td><div className="row-actions"><button title="Éditer" onClick={()=>openEditor(p)}><Pencil size={15}/></button><button title="Programmer dans le planning local" onClick={()=>updatePost(p.id,{status:'Programmé'})}><CalendarCheck size={15}/></button><button title="Marquer publié (aucune publication externe)" onClick={()=>updatePost(p.id,{status:'Publié'})}><Check size={15}/></button></div></td></tr>)}</tbody></table></div>{filtered.length===0&&<div className="empty">Aucun contenu pour ces filtres.</div>}</section>}
+ onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}><td><div className="content-table-title"><ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span><button className="row-title" onClick={()=>openEditor(p)}>{p.title}</button><small>{clean(p.caption,95)}</small></span></div></td><td><div className="channel-row">{p.channels.slice(0,5).map((c,i)=><Channel key={i} name={c} small/>)}</div></td><td className="nowrap">{shortDate(p.date)} · {p.time}</td><td><span className="muted">{p.stage}</span></td><td><Badge tone={statusClass(p.status)}>{normalizeStatus(p.status)}</Badge></td><td><div className="row-actions"><button title="Éditer" onClick={()=>openEditor(p)}><Pencil size={15}/></button><button title="Programmer dans le planning local" onClick={()=>updatePost(p.id,{status:'Programmé'})}><CalendarCheck size={15}/></button><button title="Marquer publié (aucune publication externe)" onClick={()=>updatePost(p.id,{status:'Publié'})}><Check size={15}/></button></div></td></tr>)}</tbody></table></div>{filtered.length===0&&<div className="empty">Aucun contenu pour ces filtres.</div>}</section>}
 
     {view==='calendar'&&<section className="calendar-layout"><div className="panel calendar-main"><div className="calendar-head"><div className="calendar-title"><h2>{monthLabel(calendarMonth)}</h2><span>{allPosts.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length} contenus</span></div><div className="calendar-actions"><button type="button" className={'btn btn-outline calendar-v3-toggle'+(showCloserPreviews?' calendar-v3-on':'')}
  onClick={()=>setShowCloserPreviews(v=>!v)} aria-pressed={showCloserPreviews} title="Changer les titres affichés sans modifier les contenus enregistrés">
  <Sparkles size={15}/>{showCloserPreviews?'Aperçu V3 actif':'Voir les accroches V3'}</button><div className="segmented"><button className={calendarMode==='Mois'?'on':''} onClick={()=>setCalendarMode('Mois')}>Mois</button><button className={calendarMode==='Semaine'?'on':''} onClick={()=>setCalendarMode('Semaine')}>Semaine</button><button className={calendarMode==='Agenda'?'on':''} onClick={()=>setCalendarMode('Agenda')}>Agenda</button></div><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()-1,1))}><ChevronLeft size={17}/></IconButton><IconButton onClick={()=>setCalendarMonth(new Date(calendarMonth.getFullYear(),calendarMonth.getMonth()+1,1))}><ChevronRight size={17}/></IconButton></div></div>
-      {calendarMode==='Mois'?<div className="month-view"><div className="weekday-row">{dayNames.map(x=><div key={x}>{x}</div>)}</div><div className="month-grid">{monthGrid(calendarMonth).map((d,i)=>{const iso=isoDate(d);const posts=filtered.filter(x=>x.date===iso);return <button key={iso+'-'+i} type="button" onClick={()=>openCalendarDay(iso)} className={'day-cell '+(d.getMonth()!==calendarMonth.getMonth()?'out-month ':'')+(iso===selectedDate?'chosen-day ':'')}><span className="day-num">{d.getDate()}</span><div className="day-content">{posts.slice(0,3).map(p=><span title={showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title+' (proposition non enregistrée)':p.title} key={p.id} className={'calendar-event '+statusClass(p.status)}>{clean(showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title:p.title,24)}</span>)}{posts.length>3&&<span className="more-events">+{posts.length-3} autres</span>}</div></button>})}</div></div>:calendarMode==='Semaine'?<div className="week-view"><div className="weekday-row">{weekDates.map(d=><button className={isoDate(d)===selectedDate?'selected-weekday':''} onClick={()=>openCalendarDay(isoDate(d))} key={isoDate(d)}>{dayNames[(d.getDay()+6)%7]} {d.getDate()}</button>)}</div><div className="week-columns">{weekDates.map(d=><div key={isoDate(d)} className="week-column">{filtered.filter(p=>p.date===isoDate(d)).map(p=>workChip(p))}</div>)}</div></div>:<div className="agenda-view" aria-label="Publications du mois">
+      {calendarMode==='Mois'?<div className="month-view"><div className="weekday-row">{dayNames.map(x=><div key={x}>{x}</div>)}</div><div className="month-grid">{monthGrid(calendarMonth).map((d,i)=>{const iso=isoDate(d);const posts=filtered.filter(x=>x.date===iso);return <button key={iso+'-'+i} type="button" onClick={()=>openCalendarDay(iso)} className={'day-cell '+(d.getMonth()!==calendarMonth.getMonth()?'out-month ':'')+(iso===selectedDate?'chosen-day ':'')}><span className="day-num">{d.getDate()}</span><div className="day-content">{posts.slice(0,3).map(p=><span title={showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title+' (proposition non enregistrée)':p.title} key={p.id} className={'calendar-event '+statusClass(p.status)}><ContentThumbnail post={p} assets={ws.media} brand={brand} size="micro"/>{clean(showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title:p.title,24)}</span>)}{posts.length>3&&<span className="more-events">+{posts.length-3} autres</span>}</div></button>})}</div></div>:calendarMode==='Semaine'?<div className="week-view"><div className="weekday-row">{weekDates.map(d=><button className={isoDate(d)===selectedDate?'selected-weekday':''} onClick={()=>openCalendarDay(isoDate(d))} key={isoDate(d)}>{dayNames[(d.getDay()+6)%7]} {d.getDate()}</button>)}</div><div className="week-columns">{weekDates.map(d=><div key={isoDate(d)} className="week-column">{filtered.filter(p=>p.date===isoDate(d)).map(p=>workChip(p))}</div>)}</div></div>:<div className="agenda-view" aria-label="Publications du mois">
   {filtered.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).length===0?
    <div className="agenda-empty"><CalendarDays size={28}/><strong>Aucune publication ce mois-ci</strong><span>Changez de mois ou ajoutez un contenu au planning.</span></div>:
    Array.from(new Set(filtered.filter(p=>p.date.slice(0,7)===isoDate(calendarMonth).slice(0,7)).map(p=>p.date)))
@@ -658,7 +709,7 @@ export default function Studio(){
      {filtered.filter(p=>p.date===day).map(p=><button type="button" key={p.id} className="agenda-item"
        onClick={()=>openEditor(p)} aria-label={'Modifier '+p.title}>
        <span className={'agenda-time '+statusClass(p.status)}>{p.time||'—'}</span>
-       <span className="agenda-copy"><strong>{showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title:p.title}</strong><small>{p.channels.slice(0,2).join(' · ')||p.type}{editorialAlternatives[p.id]?(showCloserPreviews?' · APERÇU V3 non sauvegardé':' · Accroche V3 disponible'):''}</small></span>
+       <ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span className="agenda-copy"><strong>{showCloserPreviews&&editorialAlternatives[p.id]?editorialAlternatives[p.id].title:p.title}</strong><small>{p.channels.slice(0,2).join(' · ')||p.type}{editorialAlternatives[p.id]?(showCloserPreviews?' · APERÇU V3 non sauvegardé':' · Accroche V3 disponible'):''}</small></span>
        <ChevronRight size={19}/></button>)}
     </section>)
   }
@@ -669,11 +720,107 @@ export default function Studio(){
  role="link" tabIndex={0} aria-label={'Ouvrir le contenu '+p.title}
  onClick={e=>activateBlock(e,()=>{if(!kanbanFilter)openEditor(p)})}
  onKeyDown={e=>activateBlockKey(e,()=>openEditor(p))}
- className="kanban-card navigable-block" key={p.id}><div className="kanban-type"><span>{labelForType(p.type)}</span><GripIcon/></div><strong className="kanban-title">{p.title}</strong><p>{clean(p.caption,90)}</p><div className="channel-row">{p.channels.slice(0,3).map((c,i)=><Channel key={i} name={c} small/>)}</div><footer><span><CalendarDays size={13}/>{shortDate(p.date)}</span><select title="Changer le statut" value={normalizeStatus(p.status)} onChange={e=>updatePost(p.id,{status:e.target.value})}>{statuses.map(ss=><option key={ss}>{ss}</option>)}</select></footer></article>)}</div></div>})}</section></>}
+ className="kanban-card navigable-block" key={p.id}><ContentThumbnail post={p} assets={ws.media} brand={brand} size="wide"/><div className="kanban-type"><span>{labelForType(p.type)}</span><GripIcon/></div><strong className="kanban-title">{p.title}</strong><p>{clean(p.caption,90)}</p><div className="channel-row">{p.channels.slice(0,3).map((c,i)=><Channel key={i} name={c} small/>)}</div><footer><span><CalendarDays size={13}/>{shortDate(p.date)}</span><select title="Changer le statut" value={normalizeStatus(p.status)} onChange={e=>updatePost(p.id,{status:e.target.value})}>{statuses.map(ss=><option key={ss}>{ss}</option>)}</select></footer></article>)}</div></div>})}</section></>}
 
-    {view==='media'&&<><div className="panel media-toolbar"><div className="panel-header"><div><h2>Bibliothèque des supports</h2><p>Images de campagne et créations disponibles dans votre espace sécurisé.</p></div><div className="toolbar-buttons"><input ref={fileInput} type="file" accept="image/*" style={{display:'none'}} onChange={e=>mediaUpload(e.target.files?.[0])}/><button className="btn btn-primary" onClick={()=>fileInput.current?.click()}><Plus size={16}/> Ajouter une image</button></div></div><div className="pill-tabs">{['Tous','Image','Vidéo','Document'].map(x=><button onClick={()=>setMediaFilter(x)} className={mediaFilter===x?'active':''} key={x}>{x}</button>)}</div></div><div className="media-layout"><div className="media-grid">{ws.media.filter(x=>mediaFilter==='Tous'||x.kind===mediaFilter).map(m=><button key={m.id} className={'asset-card '+(selectedMediaId===m.id?'asset-selected':'')} onClick={()=>setSelectedMediaId(m.id)}><div className="asset-image">{m.kind==='Image'?<img src={m.src} alt={m.name}/>:<FileVideo size={36}/>}</div><div className="asset-caption"><strong>{m.name}</strong><span>{m.format} <MoreHorizontal size={15}/></span></div></button>)}</div><aside id="mobile-media-details" className={"panel asset-details"+(selectedMedia?" asset-details-open":"")}><div className="panel-header"><h2>Détails du média</h2><IconButton onClick={()=>setSelectedMediaId('')}><X size={16}/></IconButton></div>{selectedMedia?<><div className="asset-large"><img src={selectedMedia.src} alt={selectedMedia.name}/></div><h3>{selectedMedia.name}</h3><p className="muted">{selectedMedia.note||'Ressource de création'}</p><div className="detail-line"><span>Type</span><strong>{selectedMedia.kind}</strong></div><div className="detail-line"><span>Format</span><strong>{selectedMedia.format}</strong></div><div className="detail-line"><span>Date</span><strong>{selectedMedia.created}</strong></div><div className="detail-line"><span>Marque</span><strong>{info.label}</strong></div><a className="btn btn-primary full-btn" href={selectedMedia.src} download={selectedMedia.name}><Download size={15}/> Télécharger</a></>:<div className="empty-day"><Images size={30}/><p>Sélectionnez un média pour afficher ses informations.</p></div>}</aside></div></>}
 
-    {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons"><button className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button><button className="btn btn-primary" disabled={!selectedPost} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><span>{clean(p.title,55)}</span><small>{shortDate(p.date)} · {labelForType(p.type)}</small></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-tabs"><button className={editTab==='contenu'?'active':''} onClick={()=>setEditTab('contenu')}>Contenu maître</button><button className={editTab==='declinaisons'?'active':''} onClick={()=>setEditTab('declinaisons')}>Déclinaisons ({currentVariants.length})</button></div>{editTab==='contenu'?<><label className="field">Titre du contenu<input value={editorDraft.title??selectedPost.title} onChange={e=>setEditorDraft(d=>({...d,title:e.target.value}))}/></label><div className="two-fields"><label className="field">Date<input type="date" value={editorDraft.date??selectedPost.date} onChange={e=>setEditorDraft(d=>({...d,date:e.target.value}))}/></label><label className="field">Heure<input type="time" value={editorDraft.time??selectedPost.time} onChange={e=>setEditorDraft(d=>({...d,time:e.target.value}))}/></label></div><label className="field">Texte principal<textarea rows={12} value={editorDraft.caption??selectedPost.caption} onChange={e=>setEditorDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">Appel à l’action<input value={editorDraft.cta??selectedPost.cta} onChange={e=>setEditorDraft(d=>({...d,cta:e.target.value}))}/></label><label className="field">Hashtags<textarea rows={2} value={editorDraft.hashtags??selectedPost.hashtags} onChange={e=>setEditorDraft(d=>({...d,hashtags:e.target.value}))}/></label><div className="two-fields"><label className="field">Étape<select value={editorDraft.status??normalizeStatus(selectedPost.status)} onChange={e=>setEditorDraft(d=>({...d,status:e.target.value}))}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label className="field">Canaux<input value={(editorDraft.channels??selectedPost.channels).join(', ')} onChange={e=>setEditorDraft(d=>({...d,channels:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)}))}/></label></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((editorDraft.caption??selectedPost.caption)+'\n'+(editorDraft.hashtags??selectedPost.hashtags))}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>{updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}>Enregistrer les modifications <Check size={16}/></button></div></>:<><div className="variant-tabs">{currentVariants.length===0?<p>Aucune déclinaison pour ce contenu.</p>:currentVariants.map(v=><button className={(chosenVariant?.id===v.id)?'active':''} onClick={()=>{setVariantId(v.id);setVariantDraft({})}} key={v.id}><Channel name={v.channel} small/>{v.channel}</button>)}</div>{chosenVariant&&<><label className="field">Accroche<input value={variantDraft.hook??chosenVariant.hook} onChange={e=>setVariantDraft(d=>({...d,hook:e.target.value}))}/></label><label className="field">Texte adapté à {chosenVariant.channel}<textarea rows={12} value={variantDraft.caption??chosenVariant.caption} onChange={e=>setVariantDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">CTA<input value={variantDraft.cta??chosenVariant.cta} onChange={e=>setVariantDraft(d=>({...d,cta:e.target.value}))}/></label><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((variantDraft.caption??chosenVariant.caption)+'\n'+chosenVariant.hashtags)}><Copy size={16}/> Copier</button><button className="btn btn-primary" onClick={()=>{updateVariant(chosenVariant.id,variantDraft);setVariantDraft({})}}>Enregistrer la déclinaison</button></div></>}</>}</>:<div className="empty-day"><PenSquare size={32}/><p>Choisissez un contenu sur la gauche pour l’éditer.</p></div>}</section><aside className="panel editor-side"><h3>Assistant de production</h3>
+    {view==='media'&&<>
+     <div className="panel media-toolbar media-toolbar-upgraded">
+      <div className="panel-header"><div><h2>Médiathèque visuelle</h2><p>Photographies, vidéos, carrousels et supports destinés aux deux parcours éditoriaux — espace privé de {info.label}.</p></div>
+       <div className="toolbar-buttons">
+        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,application/pdf" style={{display:'none'}} disabled={uploadBusy}
+         onChange={e=>void mediaUpload(e.target.files?.[0])}/>
+        <button className="btn btn-outline" type="button" onClick={()=>setShowStockImport(v=>!v)}><Images size={16}/> Photo libre de droits</button>
+        <button className="btn btn-primary" disabled={uploadBusy||!canEdit(brand)} onClick={()=>fileInput.current?.click()}>
+         {uploadBusy?<LoaderCircle size={16}/>:<Upload size={16}/>} {uploadBusy?'Importation…':'Importer image ou vidéo'}
+        </button>
+       </div>
+      </div>
+      <div className="media-upload-hint"><Film size={16}/> JPEG · PNG · WebP · GIF · MP4 · WebM · PDF <span>Limite actuelle : 25 Mo par fichier · vidéos avec aperçu si le navigateur peut décoder la première image</span></div>
+      {showStockImport&&<div className="media-stock-form">
+       <h3>Associer une photo de banque d’images</h3>
+       <p>Choisissez une photo sur Unsplash ou Pexels, copiez son URL d’image et celle de sa fiche d’origine. Les conditions d’usage et les droits des personnes visibles restent à vérifier.</p>
+       <label>Lien direct de l’image <input type="url" value={stockUrl} onChange={e=>setStockUrl(e.target.value)} placeholder="https://images.unsplash.com/..."/></label>
+       <label>Fiche source / licence <input type="url" value={stockSource} onChange={e=>setStockSource(e.target.value)} placeholder="https://unsplash.com/photos/..."/></label>
+       <label>Photographe / crédit <input value={stockCredit} onChange={e=>setStockCredit(e.target.value)} placeholder="Crédit du photographe"/></label>
+       <label className="media-stock-confirm"><input type="checkbox" checked={stockConfirmed} onChange={e=>setStockConfirmed(e.target.checked)}/> J’ai vérifié la licence et les droits d’utilisation pour ce contenu.</label>
+       <button className="btn btn-primary" type="button" disabled={!canEdit(brand)||!stockConfirmed||!stockUrl||!stockSource} onClick={importStockPhoto}>Ajouter à la médiathèque</button>
+      </div>}
+      <div className="pill-tabs">{['Tous','Image','Vidéo','Document'].map(x=><button className={mediaFilter===x?'active':''} onClick={()=>setMediaFilter(x)} key={x}>{x}</button>)}<span className="media-count">{ws.media.filter(m=>mediaFilter==='Tous'||m.kind===mediaFilter).length} médias</span></div>
+     </div>
+     <div className="media-layout media-layout-upgraded">
+      <div className="media-grid">
+       {ws.media.filter(m=>mediaFilter==='Tous'||m.kind===mediaFilter).map(m=><button type="button" key={m.id} className={'asset-card '+(selectedMediaId===m.id?'asset-selected':'')} onClick={()=>setSelectedMediaId(m.id)}>
+        <div className="asset-image">
+         {m.kind==='Image'&&m.src?<img src={m.src} alt="" loading="lazy"/>:
+          m.kind==='Vidéo'?<>
+           {m.posterSrc?<img src={m.posterSrc} alt="" loading="lazy"/>:<div className="media-video-placeholder"><Video size={35}/><span>VIDÉO</span></div>}
+           <span className="media-play-overlay"><Play size={20} fill="currentColor"/></span>
+          </>:<div className="media-document-placeholder"><FileText size={35}/><span>DOCUMENT</span></div>}
+        </div>
+        <div className="asset-caption"><strong>{m.name}</strong><span>{m.kind} · {m.size||m.format} <MoreHorizontal size={15}/></span></div>
+       </button>)}
+       {ws.media.filter(m=>mediaFilter==='Tous'||m.kind===mediaFilter).length===0&&<div className="media-empty-gallery"><Images size={34}/><h3>Aucun média pour ce filtre</h3><p>Importe un fichier, ou prépare un visuel depuis le brief de contenu.</p></div>}
+      </div>
+      <aside id="mobile-media-details" className={'panel asset-details'+(selectedMedia?' asset-details-open':'')}>
+       <div className="panel-header"><h2>Détails du média</h2><IconButton onClick={()=>setSelectedMediaId('')}><X size={16}/></IconButton></div>
+       {selectedMedia?<>
+        <div className="asset-large">
+         {selectedMedia.kind==='Vidéo'&&selectedMedia.src?
+          <video key={selectedMedia.id} src={selectedMedia.src} poster={selectedMedia.posterSrc||undefined} playsInline preload="metadata" controls aria-label={'Lecture vidéo '+selectedMedia.name}/>:
+          selectedMedia.kind==='Image'&&selectedMedia.src?<img src={selectedMedia.src} alt={selectedMedia.name}/>:
+          <div className="media-document-placeholder"><FileText size={45}/> Aperçu indisponible</div>}
+        </div>
+        <h3>{selectedMedia.name}</h3>
+        <p className="muted">{selectedMedia.note||'Support à relier à une publication du studio.'}</p>
+        <div className="detail-line"><span>Type</span><strong>{selectedMedia.kind}</strong></div>
+        <div className="detail-line"><span>Format</span><strong>{selectedMedia.format}</strong></div>
+        <div className="detail-line"><span>Stockage</span><strong>{selectedMedia.provider==='supabase'?'Supabase privé':selectedMedia.origin==='stock'?'Banque d’images':selectedMedia.provider==='external'?'Externe':'Ressource du studio'}</strong></div>
+        <div className="detail-line"><span>Date</span><strong>{selectedMedia.created}</strong></div>
+        <div className="detail-line"><span>Marque</span><strong>{info.label}</strong></div>
+        {selectedMedia.credit&&<p className="muted">Crédit : {selectedMedia.credit}</p>}
+        {selectedMedia.licenseUrl&&<a href={selectedMedia.licenseUrl} target="_blank" rel="noopener noreferrer" className="text-link">Voir la fiche source <ExternalLink size={14}/></a>}
+        {selectedPost&&<button className="btn btn-outline full-btn" disabled={!canEdit(brand)} onClick={()=>setPostCover(selectedPost.id,selectedMedia.id)}><Images size={15}/> Associer à « {clean(selectedPost.title,35)} »</button>}
+        {selectedMedia.src&&<a className="btn btn-primary full-btn" href={selectedMedia.src} target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/> Ouvrir le fichier</a>}
+       </>:<div className="empty-day"><Images size={30}/><p>Sélectionnez un média pour afficher son aperçu, ses informations et le relier à un contenu.</p></div>}
+      </aside>
+     </div>
+     <div className="panel media-backend-note"><FolderOpen size={20}/><div><strong>Stockage évolutif</strong><p>Supabase privé est actif. Pour de gros volumes vidéo, nous pourrons connecter un stockage objet compatible S3 sur Proxmox (MinIO ou Ceph) via des liens signés et une passerelle sécurisée. Aucun stockage Proxmox n’est connecté pour le moment.</p></div></div>
+    </>}
+
+    {view==='editor'&&<div className="editor-page"><div className="editor-top"><div><h2>Éditeur de contenu</h2><p>Rédigez, adaptez et enregistrez votre contenu dans le studio.</p></div><div className="toolbar-buttons"><button className="btn btn-outline" onClick={()=>setView('planning')}><ChevronLeft size={16}/> Retour au planning</button><button className="btn btn-primary" disabled={!selectedPost} onClick={()=>{if(selectedPost)updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}><Check size={17}/> Enregistrer</button></div></div><div className="editor-layout"><aside className="panel editor-list"><h3>Contenus</h3><div className="inline-search"><Search size={15}/><input placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="editor-post-list">{filtered.slice(0,80).map(p=><button key={p.id} className={selectedPost?.id===p.id?'selected':''} onClick={()=>{setSelectedPostId(p.id);setEditorDraft({});setEditTab('contenu');setVariantId('')}}><ContentThumbnail post={p} assets={ws.media} brand={brand} size="compact"/><span><strong>{clean(p.title,55)}</strong><small>{shortDate(p.date)} · {labelForType(p.type)}</small></span></button>)}</div></aside><section className="panel editor-workspace">{selectedPost?<><div className="editor-cover-studio">
+ <div className="editor-cover-preview"><ContentThumbnail post={selectedPost} assets={ws.media} brand={brand} size="hero"/></div>
+ <div className="editor-cover-tools">
+  <span className="editor-cover-eyebrow"><Images size={15}/> DIRECTION VISUELLE</span>
+  <h3>Vignette de cette publication</h3>
+  <p>{selectedPost.coverMediaId?'Visuel associé. Il est utilisé dans le calendrier, le Kanban et les aperçus.':'Concept de vignette automatique : un média réel remplacera ce visuel dès son association.'}</p>
+  <div className="editor-cover-actions">
+   <input ref={editorFileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" style={{display:'none'}} disabled={uploadBusy} onChange={e=>void mediaUpload(e.target.files?.[0],selectedPost.id)}/>
+   <button className="btn btn-primary" type="button" disabled={uploadBusy||!canEdit(brand)} onClick={()=>editorFileInput.current?.click()}><Upload size={15}/> {uploadBusy?'Importation…':'Importer un visuel / une vidéo'}</button>
+   <button className="btn btn-outline" type="button" onClick={()=>{setSelectedMediaId(selectedPost.coverMediaId||'');setView('media')}}><Images size={15}/> Ouvrir la médiathèque</button>
+   {selectedPost.coverMediaId&&<button type="button" className="btn btn-outline" disabled={!canEdit(brand)} onClick={()=>setPostCover(selectedPost.id,'')}><X size={15}/> Dissocier</button>}
+  </div>
+  <div className="editor-cover-gallery" aria-label="Choisir une vignette existante">
+   {ws.media.filter(m=>m.kind==='Image'||m.kind==='Vidéo').slice(0,12).map(m=><button type="button" className={'editor-cover-choice '+(m.id===selectedPost.coverMediaId?'active':'')} key={m.id}
+    disabled={!canEdit(brand)} onClick={()=>setPostCover(selectedPost.id,m.id)} title={'Utiliser '+m.name} aria-label={'Utiliser '+m.name}>
+     {m.kind==='Image'&&m.src?<img src={m.src} alt=""/>:m.kind==='Vidéo'&&m.posterSrc?<img src={m.posterSrc} alt=""/>:<Video size={21}/>}
+     {m.id===selectedPost.coverMediaId&&<Check size={13} className="editor-cover-selected"/>}
+    </button>)}
+   {!ws.media.length&&<span className="editor-no-assets">Aucun média importé. La vignette de concept reste visible partout.</span>}
+  </div>
+  {(editorDraft.type??selectedPost.type).toLowerCase().includes('carrou')&&<div className="editor-carousel-builder">
+    <strong>Pages du carrousel · {(selectedPost.mediaIds||[]).length} sélectionnée(s)</strong>
+    <p>Choisis plusieurs images de la médiathèque. La première image sélectionnée devient la couverture. Pour modifier l’ordre, retire une image puis ajoute-la de nouveau.</p>
+    <div className="editor-carousel-slides">
+      {ws.media.filter(m=>m.kind==='Image').map(m=><button type="button" key={m.id} disabled={!canEdit(brand)}
+       className={'editor-carousel-slide '+((selectedPost.mediaIds||[]).includes(m.id)?'active':'')}
+       onClick={()=>toggleCarouselMedia(selectedPost.id,m.id)} title={m.name}>
+       {m.src?<img src={m.src} alt=""/>:<Images size={18}/>}
+       <span>{(selectedPost.mediaIds||[]).includes(m.id)?'✓ '+((selectedPost.mediaIds||[]).indexOf(m.id)+1):'+'}</span>
+      </button>)}
+    </div>
+   </div>}
+ </div>
+</div><div className="editor-tabs"><button className={editTab==='contenu'?'active':''} onClick={()=>setEditTab('contenu')}>Contenu maître</button><button className={editTab==='declinaisons'?'active':''} onClick={()=>setEditTab('declinaisons')}>Déclinaisons ({currentVariants.length})</button></div>{editTab==='contenu'?<><label className="field">Format visuel<select value={editorDraft.type??selectedPost.type} onChange={e=>setEditorDraft(d=>({...d,type:e.target.value}))}>{[...new Set([selectedPost.type,'Publication','Visuel','Vidéo','Carrousel','Story'])].map(x=><option key={x} value={x}>{x}</option>)}</select></label><label className="field">Titre du contenu<input value={editorDraft.title??selectedPost.title} onChange={e=>setEditorDraft(d=>({...d,title:e.target.value}))}/></label><div className="two-fields"><label className="field">Date<input type="date" value={editorDraft.date??selectedPost.date} onChange={e=>setEditorDraft(d=>({...d,date:e.target.value}))}/></label><label className="field">Heure<input type="time" value={editorDraft.time??selectedPost.time} onChange={e=>setEditorDraft(d=>({...d,time:e.target.value}))}/></label></div><label className="field">Texte principal<textarea rows={12} value={editorDraft.caption??selectedPost.caption} onChange={e=>setEditorDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">Appel à l’action<input value={editorDraft.cta??selectedPost.cta} onChange={e=>setEditorDraft(d=>({...d,cta:e.target.value}))}/></label><label className="field">Hashtags<textarea rows={2} value={editorDraft.hashtags??selectedPost.hashtags} onChange={e=>setEditorDraft(d=>({...d,hashtags:e.target.value}))}/></label><div className="two-fields"><label className="field">Étape<select value={editorDraft.status??normalizeStatus(selectedPost.status)} onChange={e=>setEditorDraft(d=>({...d,status:e.target.value}))}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label className="field">Canaux<input value={(editorDraft.channels??selectedPost.channels).join(', ')} onChange={e=>setEditorDraft(d=>({...d,channels:e.target.value.split(',').map(x=>x.trim()).filter(Boolean)}))}/></label></div><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((editorDraft.caption??selectedPost.caption)+'\n'+(editorDraft.hashtags??selectedPost.hashtags))}><Copy size={16}/> Copier la légende</button><button className="btn btn-primary" onClick={()=>{updatePost(selectedPost.id,editorDraft);setEditorDraft({})}}>Enregistrer les modifications <Check size={16}/></button></div></>:<><div className="variant-tabs">{currentVariants.length===0?<p>Aucune déclinaison pour ce contenu.</p>:currentVariants.map(v=><button className={(chosenVariant?.id===v.id)?'active':''} onClick={()=>{setVariantId(v.id);setVariantDraft({})}} key={v.id}><Channel name={v.channel} small/>{v.channel}</button>)}</div>{chosenVariant&&<><label className="field">Accroche<input value={variantDraft.hook??chosenVariant.hook} onChange={e=>setVariantDraft(d=>({...d,hook:e.target.value}))}/></label><label className="field">Texte adapté à {chosenVariant.channel}<textarea rows={12} value={variantDraft.caption??chosenVariant.caption} onChange={e=>setVariantDraft(d=>({...d,caption:e.target.value}))}/></label><label className="field">CTA<input value={variantDraft.cta??chosenVariant.cta} onChange={e=>setVariantDraft(d=>({...d,cta:e.target.value}))}/></label><div className="editor-footer"><button className="btn btn-outline" onClick={()=>copyText((variantDraft.caption??chosenVariant.caption)+'\n'+chosenVariant.hashtags)}><Copy size={16}/> Copier</button><button className="btn btn-primary" onClick={()=>{updateVariant(chosenVariant.id,variantDraft);setVariantDraft({})}}>Enregistrer la déclinaison</button></div></>}</>}</>:<div className="empty-day"><PenSquare size={32}/><p>Choisissez un contenu sur la gauche pour l’éditer.</p></div>}</section><aside className="panel editor-side"><h3>Assistant de production</h3>
 <div className="editor-assist-intro"><Sparkles size={21}/><strong>Checklist éditoriale</strong><p>Chaque publication doit être utile et fidèle au modèle réel.</p></div>{['Accroche compréhensible en 3 secondes','Une seule idée principale','Aucun revenu garanti ni preuve inventée','CTA simple vers WhatsApp','Adaptation selon le réseau','Vérification des faits avant publication'].map(x=><label className="check-line" key={x}><input type="checkbox"/> {x}</label>)}
  {selectedPost&&selectedExample&&<section className="editor-ready-proposal" aria-label="Exemple complet pour ce contenu">
   <div className="editor-ready-heading"><span className="editor-ready-eyebrow"><Sparkles size={16}/> NOUVELLE PROPOSITION</span><h4>Exemple prêt à adapter</h4>
