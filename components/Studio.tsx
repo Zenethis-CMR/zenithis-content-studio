@@ -12,6 +12,8 @@ import {
   FolderOpen, ChartColumn, FileVideo, Layers, CheckCheck, CalendarRange, Lightbulb,
   CalendarPlus, RefreshCw, UserRound, AlertTriangle, BadgeCheck, LoaderCircle
 } from 'lucide-react';
+import {SiFacebook,SiInstagram,SiTiktok,SiYoutube,SiLinkedin,SiPinterest,SiWhatsapp,SiThreads} from 'react-icons/si';
+import {StudioLogin,StudioOnboarding} from './StudioAuth';
 import type { BrandId, ContentPost, ChannelVariant, Script, GroupEvent, MediaAsset, Status, View, PersistentWorkspace, WorkspaceData } from '@/lib/types';
 import { studioClient, STUDIO_BUCKET, readWorkspace, saveWorkspace, uploadStudioMedia, encodeWorkspace, readStudioLibrary } from '@/lib/studio-db';
 import { BRAND_INFO, emptyLibrary, seededMedia, statuses, normalizeStatus, labelForType, asDate, longDate, shortDate, byDate, socialChannels, downloadJson } from '@/lib/data';
@@ -27,7 +29,11 @@ const initialAll=():Record<BrandId,LocalWorkspace>=>({bonas:initialWorkspace('bo
 const nav:[View,string,React.ComponentType<{size?:number;strokeWidth?:number}>][]=[
  ['overview','Vue d’ensemble',LayoutDashboard],['planning','Programmation',CalendarClock],['calendar','Calendrier',CalendarDays],['kanban','Kanban éditorial',Columns3],['media','Médiathèque',Images],['editor','Éditeur de contenu',PenSquare],['video','Scripts vidéo',Video],['campaigns','Campagnes éditoriales',Megaphone],['whatsapp','WhatsApp & séminaires',MessageCircle],['insights','Analyses',ChartNoAxesCombined],['research','Veille & angles',Target],['sources','Sources & références',Library],['settings','Paramètres',Settings2]
 ];
-const iconChannels:Record<string,string>={'Facebook':'f','Instagram':'◎','TikTok':'♪','YouTube Shorts':'▶','LinkedIn':'in','Pinterest':'P','WhatsApp':'◉','Threads':'@','YouTube':'▶'};
+const socialIconByChannel:Record<string,React.ComponentType<{size?:number}>>={
+ 'Facebook':SiFacebook,'Instagram':SiInstagram,'TikTok':SiTiktok,'YouTube Shorts':SiYoutube,
+ 'YouTube':SiYoutube,'LinkedIn':SiLinkedin,'Pinterest':SiPinterest,
+ 'WhatsApp':SiWhatsapp,'Threads':SiThreads
+};
 const channelClass=(s:string)=>s.toLowerCase().replace(/\s+/g,'-');
 const statusClass=(s:string)=>{
  const v=normalizeStatus(s);return v==='Publié'?'success':v==='Programmé'?'blue':v==='À valider'?'purple':v==='En rédaction'?'orange':v==='Idée'?'neutral':'gray';
@@ -41,7 +47,12 @@ const monthGrid=(date:Date)=>{
 };
 const clean=(str:string,max=130)=>str.length>max?str.slice(0,max-1)+'…':str;
 function Badge({children,tone='blue'}:{children:React.ReactNode,tone?:string}){return <span className={'pill pill-'+tone}>{children}</span>}
-function Channel({name,small=false}:{name:string;small?:boolean}){return <span title={name} className={'channel channel-'+channelClass(name)+(small?' channel-mini':'')}>{iconChannels[name]||name.slice(0,1)}</span>}
+function Channel({name,small=false}:{name:string;small?:boolean}){
+ const Icon=socialIconByChannel[name];
+ return <span title={name} aria-label={name} className={'channel channel-'+channelClass(name)+(small?' channel-mini':'')}>
+  {Icon?<Icon size={small?13:17}/>:<span>{name.slice(0,1)}</span>}
+ </span>;
+}
 function IconButton({children,onClick,title,className=''}:{children:React.ReactNode;onClick?:()=>void;title?:string;className?:string}){return <button type="button" onClick={onClick} title={title} className={'icon-btn '+className}>{children}</button>}
 function MiniLine({values}:{values:number[]}){const mx=Math.max(1,...values);const pts=values.map((v,i)=>`${i*24},${38-(v/mx)*29}`).join(' ');return <svg className="mini-line" viewBox="0 0 168 44" aria-hidden="true"><polyline points={pts} fill="none" stroke="#3e76f7" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
 
@@ -51,7 +62,8 @@ export default function Studio(){
  const [workspaces,setWorkspaces]=useState<Record<BrandId,LocalWorkspace>>(initialAll);
  const [libraries,setLibraries]=useState<Record<BrandId,WorkspaceData>>({bonas:emptyLibrary('bonas'),lzo:emptyLibrary('lzo')});
  const [ready,setReady]=useState(false);
- const [user,setUser]=useState<{id:string;email?:string}|null>(null);
+ const [user,setUser]=useState<{id:string;email?:string;firstName?:string;lastName?:string}|null>(null);
+ const [onboardingMode,setOnboardingMode]=useState<'setup'|'reset'|null>(null);
  const [authEmail,setAuthEmail]=useState('');
  const [authMessage,setAuthMessage]=useState('');
  const [authLoading,setAuthLoading]=useState(true);
@@ -89,16 +101,24 @@ export default function Studio(){
 
 
  useEffect(()=>{
+  if(typeof window==='undefined')return;
+  const q=new URLSearchParams(window.location.search).get('mode');
+  if(q==='setup'||q==='reset')setOnboardingMode(q);
+ },[]);
+ useEffect(()=>{
   if(!studioClient){setAuthLoading(false);return}
   const client=studioClient;
   let active=true;
   const refresh=async()=>{
    const {data,error}=await client.auth.getUser();
-   if(active){setUser(error?null:(data.user?{id:data.user.id,email:data.user.email}:null));setAuthLoading(false)}
+   if(active){setUser(error?null:(data.user?{id:data.user.id,email:data.user.email,firstName:data.user.user_metadata?.first_name,lastName:data.user.user_metadata?.last_name}:null));setAuthLoading(false)}
   };
   void refresh();
-  const {data:{subscription}}=client.auth.onAuthStateChange((_event,session)=>{
-   if(active){setUser(session?.user?{id:session.user.id,email:session.user.email}:null);setAuthLoading(false)}
+  const {data:{subscription}}=client.auth.onAuthStateChange((event,session)=>{
+   if(!active)return;
+   setUser(session?.user?{id:session.user.id,email:session.user.email,firstName:session.user.user_metadata?.first_name,lastName:session.user.user_metadata?.last_name}:null);
+   if(event==='PASSWORD_RECOVERY')setOnboardingMode('reset');
+   setAuthLoading(false);
   });
   return()=>{active=false;subscription.unsubscribe()}
  },[]);
@@ -272,9 +292,19 @@ export default function Studio(){
   const {error}=await studioClient.from('studio_brand_access').upsert({
     email:normalized,brand_id:targetBrand,role:inviteRole,granted_by:user.id
   },{onConflict:'email,brand_id'});
+  if(error){setInviteBusy(false);notify('Autorisation refusée : '+error.message,'warning');return}
+  const {data:invitation,error:deliveryError}=await studioClient.functions.invoke('invite-studio-member',{
+    body:{email:normalized,brand:targetBrand,role:inviteRole}
+  });
   setInviteBusy(false);
-  if(error){notify('Autorisation refusée : '+error.message,'warning');return}
-  setInviteEmail('');notify('Accès accordé. La personne peut se connecter par e-mail.');
+  if(deliveryError||!invitation?.ok){
+    notify('Marque attribuée, mais e-mail non envoyé. Vérifiez les redirections et le quota SMTP Supabase.','warning');
+    await refreshGrantRows();return;
+  }
+  setInviteEmail('');
+  notify(invitation.status==='existing-account-reset'
+   ?'Accès attribué : e-mail de configuration du mot de passe envoyé.'
+   :'Invitation envoyée. Le destinataire pourra définir son profil et son mot de passe.');
   await refreshGrantRows();
  };
  const revokeGrant=async(grant:GrantRow)=>{
@@ -321,16 +351,11 @@ export default function Studio(){
  const authCard:React.CSSProperties={maxWidth:550,width:'100%',background:'#fff',borderRadius:20,padding:32,boxShadow:'0 12px 45px #1525561c',color:'#14204c'};
  if(!studioClient)return <main style={authPanel}><div style={authCard}><h1>Zenithis Content Studio</h1><h2>Base de données non configurée</h2><p>La sauvegarde locale a été désactivée pour ne plus annoncer de faux enregistrements. Ajoutez NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY dans Vercel puis appliquez la migration SQL Supabase.</p><p>Le compte doit être autorisé dans studio_members. Les données restent protégées par RLS.</p></div></main>;
  if(authLoading)return <main style={authPanel}><div style={authCard}>Vérification de la session…</div></main>;
- if(!user)return <main style={authPanel}><form style={authCard} onSubmit={async e=>{
-  e.preventDefault();if(!studioClient||!authEmail.trim())return;
-  const {error}=await studioClient.auth.signInWithOtp({email:authEmail.trim(),options:{emailRedirectTo:window.location.origin}});
-  setAuthMessage(error?'Connexion refusée : '+error.message:'Lien de connexion envoyé. Ouvrez votre boîte mail.');
- }}>
- <h1>Zenithis Content Studio</h1><p>Connexion sécurisée pour accéder aux espaces BONAS-INC et LZO Empire.</p>
- <label htmlFor="studio-email">Adresse e-mail</label>
- <input id="studio-email" required type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} style={{display:'block',width:'100%',padding:14,border:'1px solid #ccd6ed',borderRadius:10,margin:'12px 0'}} />
- <button className="btn btn-primary" type="submit">Recevoir mon lien de connexion</button><p role="status">{authMessage}</p>
- </form></main>;
+ if(!user)return <StudioLogin/>;
+ if(onboardingMode)return <StudioOnboarding mode={onboardingMode}
+  email={user.email||''} firstName={user.firstName||''} lastName={user.lastName||''}
+  onComplete={()=>setOnboardingMode(null)}
+ />;
  if(access&&access.allowedBrands.length===0)return <main style={authPanel}><div style={authCard}>
  <h1>Accès en attente</h1><p>Le compte <strong>{user.email}</strong> est authentifié, mais n’a accès à aucune marque.</p>
  <p>Demande au propriétaire de BONAS-INC, de LZO Empire ou au super-administrateur de t’autoriser depuis Paramètres → Accès aux marques.</p>
