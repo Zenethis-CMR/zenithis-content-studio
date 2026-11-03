@@ -7,7 +7,7 @@ export const studioClient:SupabaseClient|null =
 export const STUDIO_BUCKET='studio-media';
 export type StoredWorkspace={data:PersistentWorkspace;version:number};
 const encodePayload=(data:PersistentWorkspace):PersistentWorkspace=>({
- ...data, media:data.media.map(m=>m.storagePath?{...m,src:'storage://'+m.storagePath}:m)
+ ...data, media:(data.media||[]).map(m=>m.storagePath?{...m,src:'storage://'+m.storagePath,...(m.posterStoragePath?{posterSrc:'storage://'+m.posterStoragePath}:{})}:m)
 });
 export const encodeWorkspace=encodePayload;
 export async function hydrateWorkspace(data:PersistentWorkspace):Promise<PersistentWorkspace>{
